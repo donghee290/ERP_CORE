@@ -59,7 +59,7 @@ try
     HideCursor;
     ListenChar(2);
 
-    % BioSemi USB Trigger Interface (COM3)
+    % BioSemi USB Trigger Interface (/dev/ttyUSB0)
     sp = openBioSemiTrigger();
 
     % Keyboard queue
@@ -224,23 +224,19 @@ end
 %% BioSemi USB Trigger Interface
 function sp = openBioSemiTrigger()
 
-    instrreset;
+    portName = "/dev/ttyUSB0";
 
-    serialInfo = instrhwinfo('serial');
-    availablePorts = serialInfo.AvailableSerialPorts;
-
-    if ~any(strcmp(availablePorts, 'COM3'))
-        error('BioSemi trigger cable not found on COM3.');
+    ports = serialportlist("available");
+    
+    if ~any(strcmpi(ports, portName))
+        error('BioSemi trigger cable not found on %s.', portName);
     end
-
-    sp = serial('COM3', ...
-        'BaudRate', 115200, ...
-        'DataBits', 8, ...
-        'StopBits', 1);
-
-    fopen(sp);
-
-    fprintf('BioSemi trigger connected: %s\n', sp.Port);
+    
+    sp = serialport(portName, 115200, ...
+        "DataBits", 8, ...
+        "StopBits", 1);
+    
+    fprintf('BioSemi trigger connected: %s\n', portName);
 end
 
 
@@ -250,7 +246,7 @@ function sendBioSemiTrigger(sp, code)
         error('Trigger code must be between 1 and 255.');
     end
 
-    fwrite(sp, uint8(code));
+    write(sp, uint8(code), "uint8");
 end
 
 
@@ -295,13 +291,7 @@ function closeExperiment(win, sp)
     end
 
     if ~isempty(sp)
-        try
-            if strcmpi(sp.Status, 'open')
-                fclose(sp);
-            end
-            delete(sp);
-        catch
-        end
+        clear sp;
     end
 
     ListenChar(0);
