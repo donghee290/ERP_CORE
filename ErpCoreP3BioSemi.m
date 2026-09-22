@@ -9,21 +9,31 @@ function ErpCoreP3BioSemi
 % ISI(Inter-Stimulus Interval): 1200-1400 ms
 %
 % Trigger:
-%   tens digit = target letter
-%   ones digit = presented letter
-%   A=1, B=2, C=3, D=4, E=5
-%   e.g. target B + stimulus C -> 23
-%   target trials -> 11, 22, 33, 44, 55
+%   A = 1      (00000001)
+%   B = 2      (00000010)
+%   C = 4      (00000100)
+%   D = 8      (00001000)
+%   E = 16     (00010000)
+%   Target flag = 32
+%
+%   Target stimulus = stimulus code + 32
+%   e.g. target C -> 4 + 32 = 36 (00100100)
 %
 % Response:
 %   LeftArrow  = target
 %   RightArrow = non-target
-%   correct    -> trigger 201
-%   incorrect  -> trigger 202
+%   correct    -> trigger 64
+%   incorrect  -> trigger 128
 %   ESC        -> abort
+
 
 %% Experiment settings
 letters = {'A','B','C','D','E'};
+stimCodes = [1 2 4 8 16];
+targetFlag = 32;
+correctCode = 64;
+incorrectCode = 128;
+
 nBlocks = 5;
 trialsPerBlock = 40;
 
@@ -157,8 +167,12 @@ try
             stimLetter = letters{stimIdx};
             isTarget = (stimIdx == targetIdx);
 
-            % ERP CORE stimulus event code.
-            stimCode = 10 * targetIdx + stimIdx;
+            % Bit-based stimulus trigger code.
+            stimCode = stimCodes(stimIdx);
+
+            if isTarget
+                stimCode = stimCode + targetFlag;
+            end
 
             % Ignore keys pressed before this trial.
             KbQueueFlush();
@@ -219,9 +233,9 @@ try
                             correct = (responseIsTarget == isTarget);
 
                             if correct
-                                responseCode = 201;
+                                responseCode = correctCode;
                             else
-                                responseCode = 202;
+                                responseCode = incorrectCode;                            
                             end
 
                             sendBioSemiTrigger(sp, responseCode);
