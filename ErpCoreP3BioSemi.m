@@ -73,12 +73,20 @@ try
     targetOrder = randperm(5);
 
     %% Start
+
+    Screen('TextSize', win, 72);
+    Screen('TextStyle', win, 0);
+
     DrawFormattedText(win, ...
-        ['ERP CORE VISUAL ODDBALL\n\n' ...
-         'LEFT ARROW  = TARGET\n' ...
-         'RIGHT ARROW = NON-TARGET\n\n' ...
-         'Press SPACE to start.'], ...
-        'center', 'center', [255 255 255]);
+        'ERP CORE VISUAL ODDBALL', ...
+        'center', yCenter - 80, [255 255 255]);
+
+    Screen('TextSize', win, 48);
+
+    DrawFormattedText(win, ...
+        'Press SPACE to start.', ...
+        'center', yCenter + 60, [255 255 255]);
+
     Screen('Flip', win);
     waitForKey(startKey, escapeKey);
 
@@ -89,14 +97,52 @@ try
         targetLetter = letters{targetIdx};
         blockSequence = baseSequence(randperm(trialsPerBlock));
 
+        % Explanation
+        Screen('TextSize', win, 72);
+        Screen('TextStyle', win, 0);
         DrawFormattedText(win, ...
-            sprintf(['Block %d / %d\n\n' ...
-                     'TARGET = %s\n\n' ...
-                     'LEFT ARROW  = TARGET\n' ...
-                     'RIGHT ARROW = NON-TARGET\n\n' ...
-                     'Press SPACE to begin.'], ...
-                     block, nBlocks, targetLetter), ...
-            'center', 'center', [255 255 255]);
+            sprintf('Block %d / %d', block, nBlocks), ...
+            'center', yCenter - 220, [255 255 255]);
+
+        prefix = 'TARGET = ';
+
+        Screen('TextSize', win, 72);
+        Screen('TextStyle', win, 0);
+        prefixBounds = Screen('TextBounds', win, prefix);
+        prefixWidth = RectWidth(prefixBounds);
+
+        Screen('TextStyle', win, 1); % bold
+        targetBounds = Screen('TextBounds', win, targetLetter);
+        targetWidth = RectWidth(targetBounds);
+
+        startX = xCenter - (prefixWidth + targetWidth) / 2;
+
+        Screen('TextStyle', win, 0);
+        Screen('DrawText', win, prefix, startX, yCenter - 100, [255 255 255]);
+
+        Screen('TextStyle', win, 1); % bold
+        Screen('DrawText', win, targetLetter, ...
+            startX + prefixWidth, yCenter - 100, [255 255 255]);
+
+        Screen('TextStyle', win, 0); % reset
+
+
+        Screen('TextSize', win, 32);
+        DrawFormattedText(win, ...
+            'LEFT ARROW(←)  = TARGET', ...
+            'center', yCenter + 30, [255 255 255]);
+
+        DrawFormattedText(win, ...
+            'RIGHT ARROW(→) = NON-TARGET', ...
+            'center', yCenter + 75, [255 255 255]);
+
+
+        Screen('TextSize', win, 48);
+        DrawFormattedText(win, ...
+            'Press SPACE to begin.', ...
+            'center', yCenter + 180, [255 255 255]);
+
+
         Screen('Flip', win);
         waitForKey(startKey, escapeKey);
 
@@ -191,18 +237,35 @@ try
         end
 
         if block < nBlocks
+
+            % Explanation
+            Screen('TextSize', win, 72);
             DrawFormattedText(win, ...
-                sprintf('Block %d complete.\n\nPress SPACE for the next block.', block), ...
-                'center', 'center', [255 255 255]);
+                sprintf('Block %d complete.', block), ...
+                'center', yCenter - 60, [255 255 255]);
+
+            Screen('TextSize', win, 48);
+            DrawFormattedText(win, ...
+                'Press SPACE for the next block.', ...
+                'center', yCenter + 60, [255 255 255]);
+
             Screen('Flip', win);
             waitForKey(startKey, escapeKey);
+
         end
     end
 
     %% End
+    Screen('TextSize', win, 72);
     DrawFormattedText(win, ...
-        'Trigger test complete.\n\nPress SPACE to finish.', ...
-        'center', 'center', [255 255 255]);
+        'Trigger test complete.', ...
+        'center', yCenter - 60, [255 255 255]);
+
+    Screen('TextSize', win, 48);
+    DrawFormattedText(win, ...
+        'Press SPACE to finish.', ...
+        'center', yCenter + 60, [255 255 255]);
+
     Screen('Flip', win);
     waitForKey(startKey, escapeKey);
 
