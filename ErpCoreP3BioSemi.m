@@ -9,35 +9,43 @@ function ErpCoreP3BioSemi
 % ISI(Inter-Stimulus Interval): 1200-1400 ms
 %
 % Trigger:
+%
+%   Stimulus patterns:
 %   A = 1      (00000001)
-%   B = 2      (00000010)
-%   C = 4      (00000100)
-%   D = 8      (00001000)
-%   E = 16     (00010000)
-%   Target flag = 32
+%   B = 4      (00000100)
+%   C = 16     (00010000)
+%   D = 64     (01000000)
+%   E = 129    (10000001)
 %
-%   Target stimulus = stimulus code + 32
-%   e.g. target C -> 4 + 32 = 36 (00100100)
+%   Target flag = 2 (00000010)
+%   Target stimulus = stimulus code + target flag
 %
-% Response:
-%   LeftArrow  = target
-%   RightArrow = non-target
-%   correct    -> trigger 64
-%   incorrect  -> trigger 128
-%   ESC        -> abort
+%   Response:
+%   LeftArrow  = 8  (00001000)
+%   RightArrow = 32 (00100000)
+%
+%   Correct / Incorrect are calculated from
+%   stimulus and response, not encoded as triggers.
+%
+%   ESC = abort
 
 
 %% Experiment settings
+
 letters = {'A','B','C','D','E'};
-stimCodes = [1 2 4 8 16];
-targetFlag = 32;
-correctCode = 64;
-incorrectCode = 128;
+
+stimCodes = [1 4 16 64 129];
+
+targetFlag = 2;
+
+leftCode  = 8;
+rightCode = 32;
 
 nBlocks = 5;
 trialsPerBlock = 40;
 
 stimDuration = 0.200;
+
 isiMin = 1.200;
 isiMax = 1.400;
 
@@ -232,10 +240,10 @@ try
                         if responded
                             correct = (responseIsTarget == isTarget);
 
-                            if correct
-                                responseCode = correctCode;
+                            if responseIsTarget
+                                responseCode = leftCode;
                             else
-                                responseCode = incorrectCode;                            
+                                responseCode = rightCode;
                             end
 
                             sendBioSemiTrigger(sp, responseCode);
