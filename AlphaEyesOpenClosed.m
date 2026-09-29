@@ -26,14 +26,14 @@ function AlphaEyesOpenClosed
 fs = 44100;
 duration = 0.5;
 
-lowFreq = 400;
+lowFreq = 300;
 highFreq = 800;
 
 nCycles = 3;
 
 % Duration jitter: 9.5 ~ 10.5 s
-jitterMin = 9.5;
-jitterMax = 10.5;
+jitterMin = 9;
+jitterMax = 11;
 
 % BioSemi trigger codes
 lowStartTrigger  = 1;    % 00000001
@@ -44,6 +44,29 @@ highEndTrigger   = 64;   % 01000000
 rng('shuffle');
 
 
+%% Initialize Psychtoolbox
+PsychDefaultSetup(1);
+KbName('UnifyKeyNames');
+
+escapeKey = KbName('ESCAPE');
+
+screenNumber = max(Screen('Screens'));
+win = [];
+sp = [];
+
+[win, winRect] = PsychImaging('OpenWindow', ...
+    screenNumber, [128 128 128]);
+
+[sCenter, yCenter] = RectCenter(winRect);
+
+Screen('TextFont', win, 'Arial');
+Screen('TextSize', win, 72);
+Screen('TextStyle', win, 0);
+
+HideCursor;
+ListenChar(2);
+
+
 %% Create beep sounds
 t = 0:1/fs:duration-1/fs;
 
@@ -51,57 +74,100 @@ lowBeep = sin(2*pi*lowFreq*t);
 highBeep = sin(2*pi*highFreq*t);
 
 
-%% Connect BioSemi trigger interface
-sp = openBioSemiTrigger();
+try
+    %% Screen
+    [win, winRect] = PsychImaging('OpenWindow', ...
+        screenNumber, [128 128 128]);
 
-fprintf('Alpha experiment started.\n');
+    [xCenter, yCenter] = RectCenter(winRect);
 
+    Screen('TextFont', win, 'Arial');
+    Screen('TextSize', win, 72);
+    Screen('TextStyle', win, 0);
 
-%% Experiment
-for cycle = 1:nCycles
+    Hidecursor;
+    ListenChar(2);
 
-    %% Low beep -> Eyes Closed
-    sendBioSemiTrigger(sp, lowStartTrigger);   % Low beep START
-    sound(lowBeep, fs);
+    %% Connect BioSemi trigger interface
+    sp = openBioSemiTrigger();
 
-    WaitSecs(duration);
-
-    sendBioSemiTrigger(sp, lowEndTrigger);     % Low beep END
-
-    % Apply jitter to Eyes Closed duration
-    closedDuration = jitterMin + ...
-        (jitterMax - jitterMin) * rand;
-
-    fprintf('Cycle %d | Eyes Closed | %.3f s\n', ...
-        cycle, closedDuration);
-
-    WaitSecs(closedDuration);
+    fprintf('Alpha experiment started.\n');
 
 
-    %% High beep -> Eyes Open
-    sendBioSemiTrigger(sp, highStartTrigger);  % High beep START
-    sound(highBeep, fs);
+    %% Experiment
+    for cycle = 1:nCycles
 
-    WaitSecs(duration);
+        %% Low beep -> Eyes Closed
+        Screen('FillRect', win, [128 128 128]);
+    
+        DrawFormattedText(win, ...
+            'Close your eyes', ...
+            'center', 'center', [255 255 255]);
+    
+        Screen('Flip', win);
+    
+        sendBioSemiTrigger(sp, lowStartTrigger);   % Low beep START
+        sound(lowBeep, fs);
+    
+        waitWithEscape(duration, escapeKey);
+    
+        sendBioSemiTrigger(sp, lowEndTrigger);     % Low beep END
+    
+        % Apply jitter to Eyes Closed duration
+        closedDuration = jitterMin + ...
+            (jitterMax - jitterMin) * rand;
+    
+        fprintf('Cycle %d | Eyes Closed | %.3f s\n', ...
+            cycle, closedDuration);
+    
+        waitWithEscape(closedDuration, escapeKey);
+    
+    
+        %% High beep -> Eyes Open
+        Screen('FillRect', win, [128 128 128]);
+    
+        DrawFormattedText(win, ...
+            'Open your eyes', ...
+            'center', 'center', [255 255 255]);
+    
+        Screen('Flip', win);
+    
+        sendBioSemiTrigger(sp, highStartTrigger);  % High beep START
+        sound(highBeep, fs);
+    
+        waitWithEscape(duration, escapeKey);
+    
+        sendBioSemiTrigger(sp, highEndTrigger);    % High beep END
+    
+        % Apply jitter to Eyes Open duration
+        openDuration = jitterMin + ...
+            (jitterMax - jitterMin) * rand;
+    
+        fprintf('Cycle %d | Eyes Open | %.3f s\n', ...
+            cycle, openDuration);
+    
+        waitWithEscape(openDuration, escapeKey);
 
-    sendBioSemiTrigger(sp, highEndTrigger);    % High beep END
+    end
 
-    % Apply jitter to Eyes Open duration
-    openDuration = jitterMin + ...
-        (jitterMax - jitterMin) * rand;
 
-    fprintf('Cycle %d | Eyes Open | %.3f s\n', ...
-        cycle, openDuration);
+    %% End
+    fprintf('Experiment complete.\n');
 
-    WaitSecs(openDuration);
+    closeExperiment(win, sp);
+
+catch ME
+
+    closeExperiment(win, sp);
+
+    if strcmp(ME.message, 'USER_ABORT')
+        fprintf('\nExperiment aborted.\n');
+    else
+        rethrow(ME);
+    end
 
 end
 
-
-%% End
-fprintf('Alpha experiment complete.\n');
-
-clear sp;
 
 end
 
@@ -135,5 +201,38 @@ function sendBioSemiTrigger(sp, code)
     end
 
     write(sp, uint8(code), "uint8");
+
+end
+
+
+function waitWithEscape(waitTime, escapeKey)
+
+    startTime = GetSecs;
+
+    while GetSecs - startTime < waitTime
+
+        [keyDown, ~, keyCode] = KbCheck;
+
+        if keyDown && keyCode(escapeKey)
+            error('USER_ABORT');
+        end
+
+        WaitSecs('YieldSecs', 0.01);
+    end
+end
+
+
+function closeExperiment(win, sp)
+
+    if ~isempty(sp)
+        clear sp;
+    end
+
+    ListenChar(0);
+    ShowCursor;
+
+    if ~isempty(win)
+        Screen('CloseAll');
+    end
 
 end
