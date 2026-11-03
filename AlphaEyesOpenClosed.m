@@ -5,21 +5,21 @@ function AlphaEyesOpenClosed
 %   Compare alpha activity between eyes-closed and eyes-open conditions.
 %
 % Procedure:
-%   Low beep  (0.5 s) -> Eyes Closed (~10 s)
-%   High beep (0.5 s) -> Eyes Open   (~10 s)
+%   Low beep  (0.5 s) -> Eyes Open (~10 s)
+%   High beep (0.5 s) -> Eyes Closed   (~10 s)
 %   Repeat for 3 cycles.
 %
 % Duration:
 %   Approximately 1 minute.
 %
 % Jitter:
-%   Eyes Closed / Open duration randomly varies from 9.5 to 10.5 s.
+%   Eyes Open / Closed duration randomly varies from 9 to 11 s.
 %
 % Trigger:
 %   1 = Low beep START
-%   2 = Low beep END
-%   4 = High beep START
-%   8 = High beep END
+%   4 = Low beep END
+%   16 = High beep START
+%   64 = High beep END
 
 
 %% Experiment settings
@@ -36,10 +36,10 @@ jitterMin = 9;
 jitterMax = 11;
 
 % BioSemi trigger codes
-lowStartTrigger  = 1;    % 00000001
-lowEndTrigger    = 4;    % 00000100
-highStartTrigger = 16;   % 00010000
-highEndTrigger   = 64;   % 01000000
+lowStartTrigger  = 3;    % 00000001
+lowEndTrigger    = 7;    % 00000100
+highStartTrigger = 19;   % 00010000
+highEndTrigger   = 67;   % 01000000
 
 rng('shuffle');
 
@@ -53,18 +53,6 @@ escapeKey = KbName('ESCAPE');
 screenNumber = max(Screen('Screens'));
 win = [];
 sp = [];
-
-[win, winRect] = PsychImaging('OpenWindow', ...
-    screenNumber, [128 128 128]);
-
-[sCenter, yCenter] = RectCenter(winRect);
-
-Screen('TextFont', win, 'Arial');
-Screen('TextSize', win, 72);
-Screen('TextStyle', win, 0);
-
-HideCursor;
-ListenChar(2);
 
 
 %% Create beep sounds
@@ -85,7 +73,7 @@ try
     Screen('TextSize', win, 72);
     Screen('TextStyle', win, 0);
 
-    Hidecursor;
+    HideCursor;
     ListenChar(2);
 
     %% Connect BioSemi trigger interface
@@ -97,11 +85,11 @@ try
     %% Experiment
     for cycle = 1:nCycles
 
-        %% Low beep -> Eyes Closed
+        %% Low beep -> Eyes Open
         Screen('FillRect', win, [128 128 128]);
     
         DrawFormattedText(win, ...
-            'Close your eyes', ...
+            'Open your eyes', ...
             'center', 'center', [255 255 255]);
     
         Screen('Flip', win);
@@ -117,17 +105,17 @@ try
         closedDuration = jitterMin + ...
             (jitterMax - jitterMin) * rand;
     
-        fprintf('Cycle %d | Eyes Closed | %.3f s\n', ...
+        fprintf('Cycle %d | Eyes Open | %.3f s\n', ...
             cycle, closedDuration);
     
         waitWithEscape(closedDuration, escapeKey);
     
     
-        %% High beep -> Eyes Open
+        %% High beep -> Eyes Closed
         Screen('FillRect', win, [128 128 128]);
     
         DrawFormattedText(win, ...
-            'Open your eyes', ...
+            'Close your eyes', ...
             'center', 'center', [255 255 255]);
     
         Screen('Flip', win);
@@ -143,7 +131,7 @@ try
         openDuration = jitterMin + ...
             (jitterMax - jitterMin) * rand;
     
-        fprintf('Cycle %d | Eyes Open | %.3f s\n', ...
+        fprintf('Cycle %d | Eyes Closed | %.3f s\n', ...
             cycle, openDuration);
     
         waitWithEscape(openDuration, escapeKey);
