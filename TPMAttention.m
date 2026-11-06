@@ -24,16 +24,15 @@ if nargin < 1 || isempty(participantID)
     participantID = input('Participant ID: ', 's');
 end
 participantID = char(participantID);
-assert(~isempty(regexp(participantID, '^[A-Za-z0-9_-]+$', 'once')), ...
-    'Participant ID: use letters, digits, _ or - only.');
+assert(~isempty(regexp(participantID, '^[A-Za-z0-9_-]+$', 'once')), 'Participant ID: use letters, digits, _ or - only.');
 
 %% Configuration
 cfg.portName         = '/dev/ttyUSB0';
 cfg.useTriggers      = false;  % set false for coding/offline debug only
 
 cfg.screenNumber     = max(Screen('Screens'));
-cfg.viewDistanceMM   = 600;   % 60 cm
-cfg.screenWidthMM    = NaN;   % use Screen('DisplaySize'); optionally override after measurement
+cfg.viewDistanceMM   = 750;
+cfg.screenWidthMM    = 600;
 
 cfg.bg               = [128 128 128];
 cfg.fixColor         = [255 255 255];
@@ -41,12 +40,12 @@ cfg.ringColor        = [225 225 225];
 cfg.lineColor        = [25 25 25];
 
 cfg.radiusDeg        = 4.0;
-cfg.shapeDiameterDeg = 0.80;  % provisional
-cfg.ringDiameterDeg  = 1.10;  % provisional
-cfg.lineLengthDeg    = 0.45;  % provisional
+cfg.shapeDiameterDeg = 1.0;
+cfg.ringDiameterDeg  = 1.30;
+cfg.lineLengthDeg    = 0.55;
 
-cfg.lineWidthPx      = 2;
-cfg.ringWidthPx      = 2;
+cfg.lineWidthPx      = 3;
+cfg.ringWidthPx      = 3;
 cfg.fixDiameterPx    = 6;
 cfg.instructionPx    = 26;
 
@@ -251,6 +250,7 @@ try
             tr.trigResponseTime = NaN;
 
             % Fresh queue: prevent the prior trial's keyboard activity from carrying over.
+            checkEsc(keyEsc);
             KbQueueFlush();
 
             % Fixation + persistent placeholder rings
@@ -260,16 +260,20 @@ try
             % Cue at fixation onset + random fixation duration.
             drawCommon(win, cfg, posXY, ringPx, cx, cy);
             drawCue(win, cfg, cx, cy, tr.cue);
+            waitUntilOrEsc(tr.fixOnset + tr.fixDur - 0.5*ifi, keyEsc);
             [tr.cueOnset, ~, ~, tr.cueMissed] = Screen('Flip', win, tr.fixOnset + tr.fixDur - 0.5*ifi);
             tr.trigCueTime = sendBioSemiTrigger(sp, tr.cueTrigger);
 
             % Cue OFF after 200 ms; placeholder rings and fixation remain.
             drawCommon(win, cfg, posXY, ringPx, cx, cy);
+            waitUntilOrEsc(tr.cueOnset + cfg.cueDuration - 0.5*ifi, keyEsc);
             [tr.cueOffset, ~, ~, ~] = Screen('Flip', win, tr.cueOnset + cfg.cueDuration - 0.5*ifi);
 
             % Assemble the search display before the scheduled onset.
             drawSearch(win, cfg, posXY, ringPx, shapePx, linePx, cx, cy, tr);
+            checkEsc(keyEsc);
             KbQueueFlush();  % do not accept cue-interval responses
+            waitUntilOrEsc(tr.cueOnset + tr.soa - 0.5*ifi, keyEsc);
             [tr.displayOnset, ~, ~, tr.displayMissed] = Screen('Flip', win, tr.cueOnset + tr.soa - 0.5*ifi);
             tr.trigDisplayTime = sendBioSemiTrigger(sp, tr.displayTrigger);
 
@@ -700,4 +704,22 @@ for n=1:3
     else, srgb(n)=1.055*linear(n)^(1/2.4)-0.055; end
 end
 rgb=(255*srgb)';
+end
+
+
+function checkEsc(keyEsc)
+    [~, firstPress] = KbQueueCheck();
+
+    if firstPress(keyEsc) > 0
+        error('USER_ABORT');
+    end
+end
+
+function waitUntilOrEsc(targetTime, keyEsc)
+    while GetSecs < targetTime - 0.020
+        checkEsc(keyEsc);
+        WaitSecs('YieldSecs', 0.01);
+    end
+
+    checkEsc(keyEsc);
 end
