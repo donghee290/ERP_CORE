@@ -610,6 +610,118 @@ Screen('TextSize',win,cfg.instructionPx);
 DrawFormattedText(win,str,'center','center',[255 255 255],60,[],[],1.4);
 end
 
+function drawInstructionPreview(win, cfg, shapePx, linePx)
+
+rect = Screen('Rect', win);
+w = RectWidth(rect);
+h = RectHeight(rect);
+cx = w/2;
+
+Screen('FillRect', win, cfg.bg);
+Screen('TextFont', win, 'Arial');
+
+% ---------- Instructions ----------
+Screen('TextSize', win, max(15, round(h*0.024)));
+
+txt = sprintf([ ...
+    'VISUAL SEARCH TASK\n' ...
+    'Find the DIAMOND among the circles.\n' ...
+    'Report the line inside the diamond: F = \\   J = /\n' ...
+    'Keep your eyes on the central dot and ignore the colors.']);
+
+DrawFormattedText(win, txt, 'center', round(h*0.04), cfg.fixColor);
+
+% ---------- Shape examples ----------
+Screen('TextSize', win, max(13, round(h*0.019)));
+
+shapeY = h*0.34;
+shapeXs = cx + [-1.5 -0.5 0.5 1.5] * min(110, w*0.15);
+
+shapeLabels = {'DIAMOND \', 'DIAMOND /', 'CIRCLE \', 'CIRCLE /'};
+
+r = shapePx/2;
+half = linePx/(2*sqrt(2));
+
+exampleColor = labHueToRGB( ...
+    cfg.Lstar, cfg.Cstar, cfg.baseHueDeg(1));
+
+for i = 1:4
+
+    x = shapeXs(i);
+    y = shapeY;
+
+    if i <= 2
+        Screen('FillPoly', win, exampleColor, ...
+            [x y-r; x+r y; x y+r; x-r y], 1);
+    else
+        Screen('FillOval', win, exampleColor, ...
+            [x-r y-r x+r y+r]);
+    end
+
+    if mod(i,2) == 1
+        Screen('DrawLine', win, cfg.lineColor, ...
+            x-half, y-half, x+half, y+half, cfg.lineWidthPx);
+    else
+        Screen('DrawLine', win, cfg.lineColor, ...
+            x-half, y+half, x+half, y-half, cfg.lineWidthPx);
+    end
+
+    DrawFormattedText(win, shapeLabels{i}, ...
+        x-45, y+r+12, cfg.fixColor);
+end
+
+% ---------- All possible colors ----------
+lowShift = 2*asind(cfg.lowDeltaE/(2*cfg.Cstar));
+highShift = 2*asind(cfg.highDeltaE/(2*cfg.Cstar));
+
+labels = {'BASE', 'LOW -', 'LOW +', 'HIGH -', 'HIGH +'};
+
+tableTop = h*0.57;
+colGap = min(110, w*0.15);
+rowGap = min(52, h*0.065);
+dotR = max(6, min(16, h*0.016));
+
+tableXs = cx + (-2:2)*colGap;
+
+Screen('TextSize', win, max(12, round(h*0.017)));
+
+for c = 1:5
+    DrawFormattedText(win, labels{c}, ...
+        tableXs(c)-30, tableTop-35, cfg.fixColor);
+end
+
+for row = 1:numel(cfg.baseHueDeg)
+
+    base = cfg.baseHueDeg(row);
+
+    hues = [ ...
+        base, ...
+        mod(base-lowShift,360), ...
+        mod(base+lowShift,360), ...
+        mod(base-highShift,360), ...
+        mod(base+highShift,360)];
+
+    y = tableTop + (row-1)*rowGap;
+
+    for c = 1:5
+
+        rgb = labHueToRGB(cfg.Lstar, cfg.Cstar, hues(c));
+        x = tableXs(c);
+
+        Screen('FillOval', win, rgb, ...
+            [x-dotR y-dotR x+dotR y+dotR]);
+    end
+end
+
+% ---------- Footer ----------
+Screen('TextSize', win, max(14, round(h*0.02)));
+
+DrawFormattedText(win, ...
+    'Press SPACE to continue.   ESC to quit.', ...
+    'center', round(h*0.91), cfg.fixColor);
+
+end
+
 %% BioSemi and keys
 function sp = openBioSemiTrigger(portName)
 ports = serialportlist('available');
