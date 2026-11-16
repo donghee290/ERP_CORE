@@ -60,22 +60,28 @@ cfg.displayDuration  = 0.200;
 cfg.responseLimit    = 1.500;
 
 cfg.sessions         = 2;
-cfg.blocksPerSession = 10;
-cfg.trialsPerBlock   = 90;
-% ( fix 0.75sec + cue 0.2sec + wait 1.2sec + visual search 0.2sec + response wait 0.4sec )  * 90 trials * 10 blocks * 2 sessions = 49,500sec (82.5min)
+cfg.blocksPerSession = 15;
+cfg.trialsPerBlock   = 60;
+% ( fix 0.75sec + cue 0.2sec + wait 1.2sec + visual search 0.2sec + response wait 0.4sec )  * 60 trials * 15 blocks * 2 sessions = 49,500sec (82.5min)
 
-cfg.Lstar            = 65;
-cfg.Cstar            = 35;
-cfg.baseHueDeg       = [30 120 210 300];
-cfg.lowDeltaE        = 15;
-cfg.highDeltaE       = 60;
+cfg.validTrialsPerBlock    = 30;
+cfg.invalidTrialsPerBlock  = 10;
+cfg.neutralTrialsPerBlock  = 20;
 
-cfg.showStimulusPreview  = true;  % DEBUG ONLY
+cfg.Lstar                  = 65;
+cfg.Cstar                  = 35;
+cfg.baseHueDeg             = [30 120 210 300];
+cfg.lowDeltaE              = 15;
+cfg.highDeltaE             = 60;
 
-cfg.runPractice          = true;   % DEBUG ONLY
-cfg.practiceTrials       = 30;
+cfg.showStimulusPreview    = true;  % DEBUG ONLY
 
-cfg.practiceFeedback     = 0.700;
+cfg.runPractice            = true;  % DEBUG ONLY
+cfg.practiceTrials         = 30;
+
+cfg.practiceDisplay        = 0.700;
+cfg.practiceRTLimit        = 2.500;
+cfg.practiceFeedback       = 0.700;
 
 
 %% EEG Trigger Codes (BioSemi, 8-bit: 1-255)
@@ -152,8 +158,6 @@ stamp = datestr(now, 'yyyymmdd_HHMMSS');
 prefix = fullfile(outDir, sprintf('TPM_%s_%s', participantID, stamp));
 save([prefix '_design.mat'], 'sequence', 'cfg', 'seedInfo', 'participantID');
 
-fid = fopen([prefix '_trials.csv'], 'w');
-assert(fid ~= -1, 'Could not open the CSV file for writing.');
 headers = {'participant','session','block','trial','globalTrial', ...
     'cue','validity','salience','targetPos','distractorPos', ...
     'targetHemifield','distractorHemifield','lineDirection','correctKey', ...
@@ -162,9 +166,9 @@ headers = {'participant','session','block','trial','globalTrial', ...
     'fixDurationPlanned','SOAPlanned','fixOnset','cueOnset', ...
     'cueOffset','displayOnset','displayOffset','responseTime', ...
     'cueMissed','displayMissed','offsetMissed','triggerCueTime', ...
-    'triggerDisplayTime','triggerResponseTime'};
-fprintf(fid, '%s\n', strjoin(headers, ','));
-fclose(fid);  % commit the header before starting the task
+    'triggerDisplayTime','triggerResponseTime', ...
+    'baseHueRepeat', 'targetPosRepeat', ...
+    'distractorPresenceRepeat', 'distractorPosRepeat'};
 fid = -1;
 
 win = [];
@@ -215,43 +219,49 @@ try
 
     if cfg.showStimulusPreview
         drawInstructionPreview(win, cfg, shapePx, linePx);
-    else
-        instructionText = [ ...
-            'VISUAL SEARCH TASK\n\n' ...
-            'Six shapes will briefly appear on the screen.\n' ...
-            'Your task is to find the DIAMOND among the circles.\n\n' ...
-            'Look at the line inside the DIAMOND.\n' ...
-            'If the line is \, press F.\n' ...
-            'If the line is /, press J.\n\n' ...
-            'An arrow will appear before the shapes.\n' ...
-            'It may indicate which side the diamond will appear on.\n' ...
-            'Sometimes the arrow will point in both directions.\n\n' ...
-            'Ignore the colors of the shapes.\n' ...
-            'Keep your eyes on the central dot.\n' ...
-            'Respond as quickly and accurately as possible.\n\n' ...
-            'Press SPACE to continue.'];
-
-        drawMessage(win, cfg, instructionText);
         Screen('Flip', win);
         waitForSpace(keySpace, keyEsc);
+    end
+    instructionText = [ ...
+        'VISUAL SEARCH TASK\n\n' ...
+        'Six shapes will briefly appear on the screen.\n' ...
+        'Your task is to find the DIAMOND among the circles.\n\n' ...
+        'Look at the line inside the DIAMOND.\n' ...
+        'If the line is \, press F.\n' ...
+        'If the line is /, press J.\n\n' ...
+        'An arrow will appear before the shapes.\n' ...
+        'It may indicate which side the diamond will appear on.\n' ...
+        'Sometimes the arrow will point in both directions.\n\n' ...
+        'Ignore the colors of the shapes.\n' ...
+        'Keep your eyes on the central dot.\n' ...
+        'Respond as quickly and accurately as possible.\n\n' ...
+        'Press SPACE to continue.'];
 
-        % ------------------ Practice --------------------
+    drawMessage(win, cfg, instructionText);
+    Screen('Flip', win);
+    waitForSpace(keySpace, keyEsc);
 
-        if cfg.runPractice
-            runPractice(win, cfg, ifi, posXY, ringPx, shapePx, linePx, ...
-                cx, cy, keyF, keyJ, keyEsc, keySpace, prefix);
-        end
+    % ------------------ Practice --------------------
+
+    if cfg.runPractice
+        runPractice(win, cfg, ifi, posXY, ringPx, shapePx, linePx, ...
+            cx, cy, keyF, keyJ, keyEsc, keySpace, prefix);
     end
 
     Screen('Flip', win);
     waitForSpace(keySpace, keyEsc);
 
     globalTrial = 0;
+    previousTrial = [];
 
     for globalBlock = 1:(cfg.sessions * cfg.blocksPerSession)
+        blockRows = cell(cfg.trialsPerBlock, 1);
 
         sessionNumber = ceil(globalBlock / cfg.blocksPerSession);
         block = mod(globalBlock - 1, cfg.blocksPerSession) + 1;
+        if block == 1 
+            previousTrial = [];
+        end
 
         drawMessage(win, cfg, 'Press SPACE to begin.');
         Screen('Flip', win);
@@ -264,6 +274,24 @@ try
             tr.block = block;
             tr.trial = trial;
             tr.globalTrial = globalTrial;
+
+            if isempty(previousTrial)
+                tr.baseHueRepeat = NaN;
+                tr.targetPosRepeat = NaN;
+                tr.distractorPresenceRepeat = NaN;
+                tr.distractorPosRepeat = NaN;
+            else
+                tr.baseHueRepeat = double(tr.baseHue == previousTrial.baseHue);
+                tr.targetPosRepeat = double(tr.targetPos == previousTrial.targetPos);
+                tr.distractorPresenceRepeat = double((tr.salience > 0) == (previousTrial.salience > 0));
+
+                if tr.salience > 0 && previousTrial.salience > 0
+                    tr.distractorPosRepeat = double(tr.distractorPos == previousTrial.distractorPos);
+                else
+                    tr.distractorPosRepeat = NaN;
+                end
+            end
+
             tr.fixDur = cfg.fixMin + (cfg.fixMax-cfg.fixMin)*rand;
             tr.soa = cfg.soaMin + (cfg.soaMax-cfg.soaMin)*rand;
             tr.responseKey = 'NONE';
@@ -360,16 +388,35 @@ try
                 tr.trigResponseTime = sendBioSemiTrigger(sp, 242);
             end
 
-            fid = fopen([prefix '_trials.csv'], 'a');
-            assert(fid ~= -1, 'Failed to open CSV for append.');
-            fprintf(fid, '%s\n', encodeCSV(tr, participantID, sessionNumber));
-            fclose(fid);  % commit each finished trial (survives an abort)
-            fid = -1;
+            blockRows{trial} = encodeCSV(tr, participantID, sessionNumber);
+            previousTrial = tr;
             fprintf('S%d B%02d T%02d | %s | %s | T%d D%d | %s | %s | RT %.3f\n', ...
                 sessionNumber, block, trial, tr.cue, tr.salienceName, ...
                 tr.targetPos, tr.distractorPos, tr.lineDirection, tr.responseKey, tr.rt);
             waitUntilOrEsc(GetSecs + cfg.itiDuration, keyEsc);
         end
+
+        % ---------------- Save completed block ------------------------
+        csvPath = [prefix '_trials.csv'];
+
+        if globalBlock == 1
+            fileMode = 'w';
+        else
+            fileMode = 'a';
+        end
+
+        fid = fopen(csvPath, fileMode);
+        assert(fid ~= -1, 'Failed to open main experiment CSV.');
+
+        if globalBlock ==1
+            fprint(fid, '%s\n', strjoin(headers, ','));
+        end
+
+        fprint(fid, '%s\n', blockRows{:});
+        fclose(fid);
+        fid = -1;
+        fprint('Block %d saved: %d trials.\n', globalBlock, numel(blockRows));
+
         sendBioSemiTrigger(sp, 249);
         if globalBlock < cfg.sessions * cfg.blocksPerSession
 
@@ -449,17 +496,14 @@ practiceFile = [prefix '_practice.csv'];
 fid = fopen(practiceFile, 'w');
 assert(fid ~= -1, 'Cannot create practice CSV.');
 
-fprintf(fid, ...
-    ['trial,cue,validity,salience,targetPos,' ...
+practiceHeader = ['trial,cue,validity,salience,targetPos,' ...
      'distractorPos,correctKey,responseKey,correct,RT,' ...
-     'timeout,displayDuration,responseLimit\n']);
-
-fclose(fid);
+     'timeout,displayDuration,responseLimit\n'];
 
 % ---------- Practice instructions ----------
 message = sprintf([ ...
     'PRACTICE SESSION\n\n' ...
-    'You will complete 30 practice trials.\n' ...
+    'You will complete some practice trials.\n' ...
     'The shapes will stay on the screen slightly longer.\n' ...
     'You will have more time to respond.\n\n' ...
     'Find the DIAMOND among the circles.\n' ...
@@ -597,17 +641,12 @@ for k = 1:nPractice
     end
 
     % ---------- Save practice result ----------
-    fid = fopen(practiceFile, 'a');
-    assert(fid ~= -1, 'Cannot append practice CSV.');
-
-    fprintf(fid, ...
+    practicRows{k} = sprintff( ...
         '%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f\n', ...
         k, tr.cue, tr.validity, ...
         tr.salienceName, tr.targetPos, tr.distractorPos, ...
         tr.correctKey, responseKey, double(correct), ...
         rt, double(timeout), displayDuration, responseLimit);
-
-    fclose(fid);
 
     % ---------- Feedback ----------
     if timeout
@@ -618,15 +657,21 @@ for k = 1:nPractice
         feedback = 'INCORRECT';
     end
 
-    drawMessage(win, cfg, ...
-        sprintf('Practice %d / %d\n\n%s', ...
-        k, nPractice, feedback));
-
+    drawMessage(win, cfg, feedback);
     Screen('Flip', win);
 
     waitUntilOrEsc(GetSecs + cfg.practiceFeedback, keyEsc);
 
 end
+
+fid = fopen(practiceFile, 'w');
+assert(fid ~= -1, 'Cannot create practice CSV.');
+
+fprintf(fid, '%s\n', practiceHeader);
+fprintf(fid, '%s\n', practiceRows{:});
+fclose(fid);
+
+fprintf('Practice completed. CSV saved: %s\n', practiceFile);
 
 % ---------- End of practice ----------
 message = sprintf([ ...
@@ -647,17 +692,44 @@ end
 %% Trial design
 function sequence = buildSequence(cfg)
 sequence = struct([]);
+
+assert(cfg.validTrialsPerBlock + cfg.invalidTrialsPerBlock + cfg.neutralTrialsPerBlock == cfg.trialsPerBlock, ...
+    'Cue counts must equal trialsPerBlock.');
+assert(mod(cfg.trialsPerBlock, 3) == 0, ...
+    'trialsPerBlock must be divisible by 3.');
+assert(mod(cfg.validTrialsPerBlock, 3) == 0, ...
+    'Valid trials must be divisible by 3.');
+validPerSal = cfg.validTrialsPerBlock / 3;
+trialsPerSal = cfg.trialsPerBlock / 3;
+
+assert(mod(validPerSal, 5) == 0, ...
+    'Valid trials per salience must be divisible by 5.');
+assert(mod(cfg.blocksPerSession, 3) == 0, ...
+    'blocksPerSession must be divisible by 3.');
+invalidBase = floor(cfg.invalidTrialsPerBlock / 3);
+invalidRemainder = mod(cfg.invalidTrialsPerBlock, 3);
+
+assert(trialsPerSal - validPerSal - invalidBase - (invalidRemainder > 0) >= 0, ...
+    'Invalid cue allocation.');
+
 for b = 1:cfg.blocksPerSession
     blockTrials = struct([]);
-    % 45 valid, 15 invalid, 30 neutral trials per block. (total 90 trials)
     for cueType = 1:3  % 1=valid, 2=invalid, 3=neutral
         for sal = 0:2  % 0=absent, 1=low, 2=high
-            if cueType == 1, n = 15; elseif cueType == 2, n = 5; else, n = 10; end
+            phase = mod((b - 1) + sal, 3);
+
+            nInvalid = invalidBase + (phase < invalidRemainder);
+            nNeutral = trialsPerSal - validPerSal - nInvalid;
+            if cueType == 1, n = validPerSal; elseif cueType == 2, n = nInvalid; else, n = nNeutral; end
+            neutralMidline = floor(nNeutral / 2);
+            if mod(nNeutral, 2) == 1 && phase == 2
+                neutralMidline = neutralMidline + 1;
+            end
             for k = 1:n
                 isValid = (cueType == 1);
                 isNeutral = (cueType == 3);
                 if isNeutral
-                    targetMidline = (k <= 5);
+                    targetMidline = (k <= neutralMidline);
                     if targetMidline, tp = samplePosition([1 4]);
                     else, tp = samplePosition([2 3 5 6]); end
                     cp = 0; % neutral
@@ -673,10 +745,12 @@ for b = 1:cfg.blocksPerSession
                     if ismember(tp, [1 4]), dp = samplePosition([2 3 5 6]);
                     else, dp = samplePosition([1 4]); end
                 elseif isValid
-                    % For each salience, 3 same-side, 6 opposite, 6 midline.
-                    if k <= 3
+                    sameQuota = validPerSal / 5;
+                    oppositeQuota = 2 * sameQuota;
+                 
+                    if k <= sameQuota
                         available = setdiff(sidePositions(cp), tp);
-                    elseif k <= 9
+                    elseif k <= sameQuota + oppositeQuota
                         available = sidePositions(3-cp);
                     else
                         available = [1 4];
@@ -749,25 +823,93 @@ function sequence = balanceBaseHues(sequence, cfg)
 nTrials = numel(sequence);
 nColors = numel(cfg.baseHueDeg);
 
-assert(mod(nTrials, nColors) == 0, ...
-    'Trial count must be divisible by number of base colors.');
+assert(nColors == 4, ...
+    'Current color balancing expects four base hues.');
+assert(nTrials == cfg.blocksPerSession * cfg.trialsPerBlock, ...
+    'Input must contain one complete session.');
 
-% Each base color appears equally often.
-baseHues = repelem(cfg.baseHueDeg, nTrials / nColors);
+% Each salience must have an equal number of trials per color.
+for sal = 0:2
 
-% Randomize the order while keeping exact counts.
-baseHues = baseHues(randperm(nTrials));
+    salIdx = find([sequence.salience] == sal);
+    nSal = numel(salIdx);
 
+    assert(mod(nSal, nColors) == 0, ...
+        'Salience trial count must be divisible by color count.');
+
+    targetPerColor = nSal / nColors;
+
+    % Process neutral first, then valid and invalid.
+    cueNames = {'NEUTRAL', 'VALID', 'INVALID'};
+
+    groupIdx = cell(1, numel(cueNames));
+    baseQuota = zeros(numel(cueNames), nColors);
+    remainder = zeros(1, numel(cueNames));
+
+    for g = 1:numel(cueNames)
+
+        groupIdx{g} = find( ...
+            [sequence.salience] == sal & ...
+            strcmp({sequence.validity}, cueNames{g}));
+
+        nGroup = numel(groupIdx{g});
+
+        baseQuota(g, :) = floor(nGroup / nColors);
+        remainder(g) = mod(nGroup, nColors);
+    end
+
+    % Remaining capacity of each color within this salience.
+    capacity = targetPerColor - sum(baseQuota, 1);
+
+    assert(all(capacity >= 0), ...
+        'Base allocation exceeds color capacity.');
+
+    for g = 1:numel(cueNames)
+
+        quotas = baseQuota(g, :);
+        extra = remainder(g);
+
+        % Give remaining trials to colors with greatest capacity.
+        if extra > 0
+
+            tieBreaker = rand(1, nColors);
+            scores = capacity + tieBreaker * 1e-3;
+
+            [~, order] = sort(scores, 'descend');
+            chosen = order(1:extra);
+
+            quotas(chosen) = quotas(chosen) + 1;
+            capacity(chosen) = capacity(chosen) - 1;
+        end
+
+        assert(all(capacity >= 0), ...
+            'Color allocation exceeded target count.');
+
+        hues = repelem(cfg.baseHueDeg, quotas);
+
+        assert(numel(hues) == numel(groupIdx{g}));
+
+        % Randomize presentation order within this condition.
+        hues = hues(randperm(numel(hues)));
+
+        for j = 1:numel(groupIdx{g})
+            sequence(groupIdx{g}(j)).baseHue = hues(j);
+        end
+    end
+
+    assert(all(capacity == 0), ...
+        'Color allocation did not reach exact salience balance.');
+end
+
+% ---------- Recalculate color values ----------
 for i = 1:nTrials
-
-    baseHue = baseHues(i);
+    baseHue = sequence(i).baseHue;
     sal = sequence(i).salience;
-
-    sequence(i).baseHue = baseHue;
 
     if sal == 0
         singletonHue = NaN;
         actualDeltaE = 0;
+
     else
         if sal == 1
             deltaE = cfg.lowDeltaE;
@@ -776,73 +918,128 @@ for i = 1:nTrials
         end
 
         hueShift = 2 * asind(deltaE / (2 * cfg.Cstar));
-
-        % Randomly rotate clockwise or counterclockwise.
         direction = 2 * randi(2) - 3;
-        singletonHue = mod(baseHue + direction * hueShift, 360);
 
+        singletonHue = mod(baseHue + direction * hueShift, 360);
         actualDeltaE = 2 * cfg.Cstar * sind(hueShift / 2);
     end
 
     sequence(i).distractorHue = singletonHue;
     sequence(i).actualDeltaE = actualDeltaE;
-
-    % Recalculate actual RGB values.
-    sequence(i).baseRGB = labHueToRGB( ...
-        cfg.Lstar, cfg.Cstar, baseHue);
+    sequence(i).baseRGB = labHueToRGB( cfg.Lstar, cfg.Cstar, baseHue);
 
     if sal == 0
         sequence(i).distractorRGB = sequence(i).baseRGB;
     else
-        sequence(i).distractorRGB = labHueToRGB( ...
-            cfg.Lstar, cfg.Cstar, singletonHue);
+        sequence(i).distractorRGB = labHueToRGB(cfg.Lstar, cfg.Cstar, singletonHue);
     end
 end
 
-% Verify exact color balance.
-for c = 1:nColors
-    assert(sum([sequence.baseHue] == cfg.baseHueDeg(c)) ...
-        == nTrials / nColors);
+for sal = 0:2
+    salMask = [sequence.salience] == sal;
+
+    for c = 1:nColors
+        count = sum( salMask & [sequence.baseHue] == cfg.baseHueDeg(c));
+        expected = sum(salMask) / nColors;
+
+        assert(count == expected, ...
+            'Base hue balance validation failed.');
+    end
 end
+
+fprintf('Base hue balancing passed: %d trials.\n', nTrials);
 
 end
 
 
 function validateSequence(sequence, cfg)
 
-assert(numel(sequence) == ...
-    cfg.sessions * cfg.blocksPerSession * cfg.trialsPerBlock);
+nPerSession = cfg.blocksPerSession * cfg.trialsPerBlock;
+nPerSal = cfg.trialsPerBlock / 3;
+nValidPerSal = cfg.validTrialsPerBlock / 3;
 
-for b = 1:(cfg.sessions * cfg.blocksPerSession)
-    ts = sequence((b-1)*cfg.trialsPerBlock+1:b*cfg.trialsPerBlock);
-    for s = 0:2
-        assert(sum([ts.salience] == s) == 30);
-        for c = {'VALID','INVALID','NEUTRAL'}
-            cue = c{1};
-            if strcmp(cue,'VALID'), count=15;
-            elseif strcmp(cue,'INVALID'), count=5;
-            else, count=10; end
-            assert(sum(strcmp({ts.validity},cue) & [ts.salience] == s) == count);
-        end
-        if s>0
-            valid = ts(strcmp({ts.validity},'VALID') & [ts.salience] == s);
-            same = 0; opposite = 0; midline = 0;
-            for j = 1:numel(valid)
-                dh = valid(j).distractorHemifield;
-                if dh==0, midline=midline+1;
-                elseif dh==valid(j).targetHemifield, same=same+1;
-                else, opposite=opposite+1; end
+assert(numel(sequence) == cfg.sessions * nPerSession);
+
+invalidBase = floor(cfg.invalidTrialsPerBlock / 3);
+invalidRemainder = mod(cfg.invalidTrialsPerBlock, 3);
+
+for session = 1:cfg.sessions
+    sessionStart = (session - 1) * nPerSession;
+
+    for b = 1:cfg.blocksPerSession
+        firstIdx = sessionStart + (b - 1) * cfg.trialsPerBlock + 1;
+        lastIdx = firstIdx + cfg.trialsPerBlock -1;
+        ts = sequence(firstIdx:lastIdx);
+
+        assert(sum(strcmp({ts.validity}, 'VALID')) == cfg.validTrialsPerBlock);
+        assert(sum(strcmp({ts.validity}, 'INVALID')) == cfg.invalidTrialsPerBlock);
+        assert(sum(strcmp({ts.validity}, 'NEUTRAL')) == cfg.neutralTrialsPerBlock);
+
+        for sal = 0:2
+            phase = mod((b - 1) + sal, 3);
+            nInvalid = invalidBase + (phase < invalidRemainder);
+
+            nNeutral = nPerSal - nValidPerSal - nInvalid;
+
+            salMask = [ts.salience] == sal;
+
+            assert(sum(salMask) == nPerSal);
+            assert(sum(salMask & strcmp({ts.validity}, 'VALID')) == nValidPerSal);
+            assert(sum(salMask & strcmp({ts.validity}, 'INVALID')) == nInvalid);
+            assert(sum(salMask & strcmp({ts.validity}, 'NEUTRAL')) == nNeutral);
+
+            % Neutral target midline / lateral allocation
+            neutral = ts(salMask & strcmp({ts.validity}, 'NEUTRAL'));
+
+            expectedMidline = floor(nNeutral / 2);
+
+            if mod(nNeutral, 2) == 1 && phase == 2
+                expectedMidline = expectedMidline + 1;
             end
-            assert(same==3 && opposite==6 && midline==6);
+
+            assert(sum(ismember([neutral.targetPos], [1 4])) == expectedMidline);
+
+            % Valid distractor location allocation
+            if sal > 0
+                valid = ts(salMask & strcmp({ts.validity}, 'VALID'));
+
+                same = 0;
+                opposite = 0;
+                midline = 0;
+
+                for j = 1:numel(valid)
+                    dh = valid(j).distractorHemifield;
+
+                    if dh == 0
+                        midline = midline + 1;
+
+                    elseif dh == valid(j).targetHemifield
+                        same = same + 1;
+
+                    else
+                        opposite = opposite + 1;
+                    end
+                end
+
+                assert(same == nValidPerSal / 5);
+                assert(opposite == 2 * nValidPerSal / 5);
+                assert(midline == 2 * nValidPerSal / 5);
+            end
+        end
+
+        % Trial-level structural checks
+        for j = 1:numel(ts)
+            assert(ts(j).targetPos ~= ts(j).distractorPos);
+            assert(ts(j).cueTrigger >= 1 && ts(j).cueTrigger <= 3);
+            assert(ts(j).displayTrigger >= 32 && ts(j).displayTrigger <= 255);
         end
     end
-    for j=1:numel(ts)
-        assert(ts(j).targetPos~=ts(j).distractorPos);
-        assert(ts(j).cueTrigger>=1 && ts(j).cueTrigger<=3);
-        assert(ts(j).displayTrigger>=32 && ts(j).displayTrigger<=255);
-    end
 end
+
+fprintf('Sequence validation passed: %d trials.\n', numel(sequence));
+
 end
+
 
 %% Drawing
 function xy = positionCoordinates(cx,cy,r)
@@ -973,11 +1170,9 @@ shapeLabels = {'DIAMOND \', 'DIAMOND /', 'CIRCLE \', 'CIRCLE /'};
 r = shapePx/2;
 half = linePx/(2*sqrt(2));
 
-exampleColor = labHueToRGB( ...
-    cfg.Lstar, cfg.Cstar, cfg.baseHueDeg(1));
+exampleColor = labHueToRGB(cfg.Lstar, cfg.Cstar, cfg.baseHueDeg(1));
 
 for i = 1:4
-
     x = shapeXs(i);
     y = shapeY;
 
@@ -1205,7 +1400,9 @@ items = {id,session,t.block,t.trial,t.globalTrial,t.cue,t.validity, ...
     t.responseTrigger,t.responseKey,t.correct,t.rt,t.timeout, ...
     t.fixDur,t.soa,t.fixOnset,t.cueOnset,t.cueOffset, ...
     t.displayOnset,t.displayOffset,t.responseTime,t.cueMissed, ...
-    t.displayMissed,t.offsetMissed,t.trigCueTime,t.trigDisplayTime,t.trigResponseTime};
+    t.displayMissed,t.offsetMissed,t.trigCueTime,t.trigDisplayTime,t.trigResponseTime, ...
+    t.trigResponseTime,t.baseHueRepeat,t.targetPosRepeat, ...
+    t.distractorPresenceRepeat,t.distractorPosRepeat};
 vals = cell(size(items));
 for k=1:numel(items)
     if isnumeric(items{k}) || islogical(items{k}), vals{k}=sprintf('%.17g',double(items{k}));
