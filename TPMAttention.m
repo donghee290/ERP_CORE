@@ -62,7 +62,7 @@ cfg.responseLimit    = 1.500;
 cfg.sessions         = 2;
 cfg.blocksPerSession = 10;
 cfg.trialsPerBlock   = 90;
-% soa 1.5sec * 90 trials * 10 blocks * 2 sessions = 2,700sec (45min)
+% ( fix 0.75sec + cue 0.2sec + wait 1.2sec + visual search 0.2sec + response wait 0.4sec )  * 90 trials * 10 blocks * 2 sessions = 49,500sec (82.5min)
 
 cfg.Lstar            = 65;
 cfg.Cstar            = 35;
@@ -70,7 +70,12 @@ cfg.baseHueDeg       = [30 120 210 300];
 cfg.lowDeltaE        = 15;
 cfg.highDeltaE       = 60;
 
-cfg.showStimulusPreview = true;  % DEBUG ONLY
+cfg.showStimulusPreview  = true;  % DEBUG ONLY
+
+cfg.runPractice          = true;   % DEBUG ONLY
+cfg.practiceTrials       = 30;
+
+cfg.practiceFeedback     = 0.700;
 
 
 %% EEG Trigger Codes (BioSemi, 8-bit: 1-255)
@@ -136,6 +141,7 @@ seedInfo = rng;
 sequence = struct([]);
 for session = 1:cfg.sessions
     sessionSequence = buildSequence(cfg);
+    sessionSequence = balanceBaseHues(sessionSequence, cfg);
     sequence = [sequence sessionSequence]; %#ok<AGROW>
 end
 validateSequence(sequence, cfg);
@@ -226,6 +232,15 @@ try
             'Press SPACE to continue.'];
 
         drawMessage(win, cfg, instructionText);
+        Screen('Flip', win);
+        waitForSpace(keySpace, keyEsc);
+
+        % ------------------ Practice --------------------
+
+        if cfg.runPractice
+            runPractice(win, cfg, ifi, posXY, ringPx, shapePx, linePx, ...
+                cx, cy, keyF, keyJ, keyEsc, keySpace, prefix);
+        end
     end
 
     Screen('Flip', win);
@@ -396,6 +411,239 @@ end
 cleanup(win, sp, fid, queueStarted);
 end
 
+
+%% Practice trials
+function runPractice(win, cfg, ifi, posXY, ringPx, shapePx, linePx, ...
+    cx, cy, keyF, keyJ, keyEsc, keySpace, prefix)
+
+nPractice = cfg.practiceTrials;
+
+% Generate a separate practice sequence.
+% Main experiment trials are not affected.
+tempSequence = buildSequence(cfg);
+block90 = tempSequence(1:cfg.trialsPerBlock);
+
+selected = [];
+names = {'VALID', 'INVALID', 'NEUTRAL'};
+counts = [5, 2, 3];
+
+for sal = 0:2
+    for c = 1:3
+        candidates = find( ...
+            [block90.salience] == sal & ...
+            strcmp({block90.validity}, names{c}));
+
+        candidates = candidates(randperm(numel(candidates)));
+        selected = [selected candidates(1:counts(c))]; %#ok<AGROW>
+    end
+end
+
+selected = selected(randperm(numel(selected)));
+practiceSequence = block90(selected);
+
+save([prefix '_practice_design.mat'], 'practiceSequence');
+
+% Separate CSV for practice results
+practiceFile = [prefix '_practice.csv'];
+
+fid = fopen(practiceFile, 'w');
+assert(fid ~= -1, 'Cannot create practice CSV.');
+
+fprintf(fid, ...
+    ['trial,cue,validity,salience,targetPos,' ...
+     'distractorPos,correctKey,responseKey,correct,RT,' ...
+     'timeout,displayDuration,responseLimit\n']);
+
+fclose(fid);
+
+% ---------- Practice instructions ----------
+message = sprintf([ ...
+    'PRACTICE SESSION\n\n' ...
+    'You will complete 30 practice trials.\n' ...
+    'The shapes will stay on the screen slightly longer.\n' ...
+    'You will have more time to respond.\n\n' ...
+    'Find the DIAMOND among the circles.\n' ...
+    'Press F for \\ and J for /.\n' ...
+    'Keep your eyes on the central dot.\n\n' ...
+    'You will receive feedback after each trial.\n\n' ...
+    'Press SPACE to begin.   ESC to quit.']);
+
+drawMessage(win, cfg, message);
+Screen('Flip', win);
+waitForSpace(keySpace, keyEsc);
+
+% ---------- Practice loop ----------
+for k = 1:nPractice
+
+    tr = practiceSequence(k);
+
+    displayDuration = cfg.practiceDisplay;
+    responseLimit = cfg.practiceRTLimit;
+
+    % Stimulus Onset Asynchrony (SOA):
+    % Cue onset to Search Display onset.
+    fixDur = cfg.fixMin + (cfg.fixMax-cfg.fixMin)*rand;
+    onsetAsynchrony = ...
+        cfg.soaMin + (cfg.soaMax-cfg.soaMin)*rand;
+
+    responseKey = 'NONE';
+    correct = false;
+    rt = NaN;
+    timeout = true;
+    responded = false;
+    displayOff = false;
+
+    % ---------- Fixation ----------
+    checkEsc(keyEsc);
+    KbQueueFlush();
+
+    drawCommon(win, cfg, posXY, ringPx, cx, cy);
+    fixOnset = Screen('Flip', win);
+
+    % ---------- Cue ----------
+    drawCommon(win, cfg, posXY, ringPx, cx, cy);
+    drawCue(win, cfg, cx, cy, tr.cue);
+
+    cueDeadline = fixOnset + fixDur - 0.5*ifi;
+    waitUntilOrEsc(cueDeadline, keyEsc);
+    cueOnset = Screen('Flip', win, cueDeadline);
+
+    % ---------- Cue offset ----------
+    drawCommon(win, cfg, posXY, ringPx, cx, cy);
+
+    cueOffDeadline = ...
+        cueOnset + cfg.cueDuration - 0.5*ifi;
+
+    waitUntilOrEsc(cueOffDeadline, keyEsc);
+    Screen('Flip', win, cueOffDeadline);
+
+    % ---------- Search Display ----------
+    drawSearch(win, cfg, posXY, ringPx, ...
+        shapePx, linePx, cx, cy, tr);
+
+    checkEsc(keyEsc);
+    KbQueueFlush();
+
+    displayDeadline = ...
+        cueOnset + onsetAsynchrony - 0.5*ifi;
+
+    waitUntilOrEsc(displayDeadline, keyEsc);
+    displayOnset = Screen('Flip', win, displayDeadline);
+
+    % ---------- Response ----------
+    while true
+
+        % ESC monitoring
+        [~, ~, keyCode] = KbCheck(-1);
+
+        if keyCode(keyEsc)
+            error('USER_ABORT');
+        end
+
+        [pressed, firstPress] = KbQueueCheck();
+
+        if pressed
+            if firstPress(keyEsc) > 0
+                error('USER_ABORT');
+            end
+
+            if ~responded
+
+                candidates = ...
+                    [firstPress(keyF), firstPress(keyJ)];
+
+                candidates(candidates == 0) = Inf;
+                [pressedAt, choice] = min(candidates);
+
+                if isfinite(pressedAt) && ...
+                        pressedAt >= displayOnset && ...
+                        pressedAt <= displayOnset + responseLimit
+
+                    responded = true;
+                    rt = pressedAt - displayOnset;
+                    timeout = false;
+
+                    if choice == 1
+                        responseKey = 'F';
+                        correct = strcmp( ...
+                            tr.lineDirection, 'BACKSLASH');
+                    else
+                        responseKey = 'J';
+                        correct = strcmp( ...
+                            tr.lineDirection, 'SLASH');
+                    end
+                end
+            end
+        end
+
+        % Keep search visible for the configured duration.
+        if ~displayOff && ...
+                GetSecs >= displayOnset + displayDuration - ifi
+
+            drawCommon(win, cfg, posXY, ringPx, cx, cy);
+
+            Screen('Flip', win, ...
+                displayOnset + displayDuration - 0.5*ifi);
+
+            displayOff = true;
+        end
+
+        if displayOff && ...
+                (responded || GetSecs >= displayOnset + responseLimit)
+            break;
+        end
+
+        WaitSecs('YieldSecs', 0.001);
+    end
+
+    % ---------- Save practice result ----------
+    fid = fopen(practiceFile, 'a');
+    assert(fid ~= -1, 'Cannot append practice CSV.');
+
+    fprintf(fid, ...
+        '%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f\n', ...
+        k, tr.cue, tr.validity, ...
+        tr.salienceName, tr.targetPos, tr.distractorPos, ...
+        tr.correctKey, responseKey, double(correct), ...
+        rt, double(timeout), displayDuration, responseLimit);
+
+    fclose(fid);
+
+    % ---------- Feedback ----------
+    if timeout
+        feedback = 'TOO SLOW';
+    elseif correct
+        feedback = 'CORRECT';
+    else
+        feedback = 'INCORRECT';
+    end
+
+    drawMessage(win, cfg, ...
+        sprintf('Practice %d / %d\n\n%s', ...
+        k, nPractice, feedback));
+
+    Screen('Flip', win);
+
+    waitUntilOrEsc(GetSecs + cfg.practiceFeedback, keyEsc);
+
+end
+
+% ---------- End of practice ----------
+message = sprintf([ ...
+    'PRACTICE COMPLETE\n\n' ...
+    'You have completed all practice trials.\n\n' ...
+    'The main experiment will now begin.\n' ...
+    'The shapes will appear for a shorter duration.\n' ...
+    'You will not receive feedback after each trial.\n\n' ...
+    'Press SPACE to continue.   ESC to quit.']);
+
+drawMessage(win, cfg, message);
+Screen('Flip', win);
+waitForSpace(keySpace, keyEsc);
+
+end
+
+
 %% Trial design
 function sequence = buildSequence(cfg)
 sequence = struct([]);
@@ -495,6 +743,71 @@ for b = 1:cfg.blocksPerSession
 end
 end
 
+
+function sequence = balanceBaseHues(sequence, cfg)
+
+nTrials = numel(sequence);
+nColors = numel(cfg.baseHueDeg);
+
+assert(mod(nTrials, nColors) == 0, ...
+    'Trial count must be divisible by number of base colors.');
+
+% Each base color appears equally often.
+baseHues = repelem(cfg.baseHueDeg, nTrials / nColors);
+
+% Randomize the order while keeping exact counts.
+baseHues = baseHues(randperm(nTrials));
+
+for i = 1:nTrials
+
+    baseHue = baseHues(i);
+    sal = sequence(i).salience;
+
+    sequence(i).baseHue = baseHue;
+
+    if sal == 0
+        singletonHue = NaN;
+        actualDeltaE = 0;
+    else
+        if sal == 1
+            deltaE = cfg.lowDeltaE;
+        else
+            deltaE = cfg.highDeltaE;
+        end
+
+        hueShift = 2 * asind(deltaE / (2 * cfg.Cstar));
+
+        % Randomly rotate clockwise or counterclockwise.
+        direction = 2 * randi(2) - 3;
+        singletonHue = mod(baseHue + direction * hueShift, 360);
+
+        actualDeltaE = 2 * cfg.Cstar * sind(hueShift / 2);
+    end
+
+    sequence(i).distractorHue = singletonHue;
+    sequence(i).actualDeltaE = actualDeltaE;
+
+    % Recalculate actual RGB values.
+    sequence(i).baseRGB = labHueToRGB( ...
+        cfg.Lstar, cfg.Cstar, baseHue);
+
+    if sal == 0
+        sequence(i).distractorRGB = sequence(i).baseRGB;
+    else
+        sequence(i).distractorRGB = labHueToRGB( ...
+            cfg.Lstar, cfg.Cstar, singletonHue);
+    end
+end
+
+% Verify exact color balance.
+for c = 1:nColors
+    assert(sum([sequence.baseHue] == cfg.baseHueDeg(c)) ...
+        == nTrials / nColors);
+end
+
+end
+
+
 function validateSequence(sequence, cfg)
 
 assert(numel(sequence) == ...
@@ -548,7 +861,7 @@ end
 
 function drawCue(win, cfg, cx, cy, cue)
 
-arrowLength = 120; %70;
+arrowLength = 100; %70;
 shaftHalf   = 7; %5;
 headLength  = 28; %18;
 headHalf    = 22; %17;
