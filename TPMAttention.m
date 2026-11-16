@@ -28,7 +28,7 @@ assert(~isempty(regexp(participantID, '^[A-Za-z0-9_-]+$', 'once')), 'Participant
 
 %% Configuration
 cfg.portName         = '/dev/ttyUSB0';
-cfg.useTriggers      = false;  % set false for coding/offline debug only
+cfg.useTriggers      = false;  % DEBUG ONLY
 
 cfg.screenNumber     = max(Screen('Screens'));
 cfg.viewDistanceMM   = 750;
@@ -40,9 +40,9 @@ cfg.ringColor        = [225 225 225];
 cfg.lineColor        = [25 25 25];
 
 cfg.radiusDeg        = 4.0;
-cfg.shapeDiameterDeg = 1.0;
-cfg.ringDiameterDeg  = 1.30;
-cfg.lineLengthDeg    = 0.55;
+cfg.shapeDiameterDeg = 1.40; %1.0;
+cfg.ringDiameterDeg  = 1.70; %1.30;
+cfg.lineLengthDeg    = 0.70; %0.55;
 
 cfg.lineWidthPx      = 3;
 cfg.ringWidthPx      = 3;
@@ -52,6 +52,8 @@ cfg.instructionPx    = 26;
 cfg.fixMin           = 0.600;
 cfg.fixMax           = 0.900;
 cfg.cueDuration      = 0.200;
+
+cfg.itiDuration      = 0.400;  %added
 cfg.soaMin           = 1.200;
 cfg.soaMax           = 1.600;
 cfg.displayDuration  = 0.200;
@@ -60,12 +62,15 @@ cfg.responseLimit    = 1.500;
 cfg.sessions         = 2;
 cfg.blocksPerSession = 10;
 cfg.trialsPerBlock   = 90;
+% soa 1.5sec * 90 trials * 10 blocks * 2 sessions = 2,700sec (45min)
 
 cfg.Lstar            = 65;
 cfg.Cstar            = 35;
 cfg.baseHueDeg       = [30 120 210 300];
 cfg.lowDeltaE        = 15;
 cfg.highDeltaE       = 60;
+
+cfg.showStimulusPreview = true;  % DEBUG ONLY
 
 
 %% EEG Trigger Codes (BioSemi, 8-bit: 1-255)
@@ -202,22 +207,27 @@ try
     KbQueueStart();
     queueStarted = true;
 
-    instructionText = [ ...
-        'VISUAL SEARCH TASK\n\n' ...
-        'Six shapes will briefly appear on the screen.\n' ...
-        'Your task is to find the DIAMOND among the circles.\n\n' ...
-        'Look at the line inside the DIAMOND.\n' ...
-        'If the line is \, press F.\n' ...
-        'If the line is /, press J.\n\n' ...
-        'An arrow will appear before the shapes.\n' ...
-        'It may indicate which side the diamond will appear on.\n' ...
-        'Sometimes the arrow will point in both directions.\n\n' ...
-        'Ignore the colors of the shapes.\n' ...
-        'Keep your eyes on the central dot.\n' ...
-        'Respond as quickly and accurately as possible.\n\n' ...
-        'Press SPACE to continue.'];
+    if cfg.showStimulusPreview
+        drawInstructionPreview(win, cfg, shapePx, linePx);
+    else
+        instructionText = [ ...
+            'VISUAL SEARCH TASK\n\n' ...
+            'Six shapes will briefly appear on the screen.\n' ...
+            'Your task is to find the DIAMOND among the circles.\n\n' ...
+            'Look at the line inside the DIAMOND.\n' ...
+            'If the line is \, press F.\n' ...
+            'If the line is /, press J.\n\n' ...
+            'An arrow will appear before the shapes.\n' ...
+            'It may indicate which side the diamond will appear on.\n' ...
+            'Sometimes the arrow will point in both directions.\n\n' ...
+            'Ignore the colors of the shapes.\n' ...
+            'Keep your eyes on the central dot.\n' ...
+            'Respond as quickly and accurately as possible.\n\n' ...
+            'Press SPACE to continue.'];
 
-    drawMessage(win, cfg, instructionText);
+        drawMessage(win, cfg, instructionText);
+    end
+
     Screen('Flip', win);
     waitForSpace(keySpace, keyEsc);
 
@@ -285,7 +295,13 @@ try
             tr.displayOffset = NaN;
             tr.offsetMissed = NaN;
             while true
+                [~, ~, keyCode] = KbCheck(-1);
+                if keyCode(keyEsc)
+                    error('USER_ABORT');
+                end
+
                 [pressed, firstPress] = KbQueueCheck();
+
                 if pressed
                     if firstPress(keyEsc) > 0
                         error('USER_ABORT');
@@ -337,6 +353,7 @@ try
             fprintf('S%d B%02d T%02d | %s | %s | T%d D%d | %s | %s | RT %.3f\n', ...
                 sessionNumber, block, trial, tr.cue, tr.salienceName, ...
                 tr.targetPos, tr.distractorPos, tr.lineDirection, tr.responseKey, tr.rt);
+            waitUntilOrEsc(GetSecs + cfg.itiDuration, keyEsc);
         end
         sendBioSemiTrigger(sp, 249);
         if globalBlock < cfg.sessions * cfg.blocksPerSession
@@ -531,10 +548,10 @@ end
 
 function drawCue(win, cfg, cx, cy, cue)
 
-arrowLength = 70;
-shaftHalf   = 5;
-headLength  = 18;
-headHalf    = 17;
+arrowLength = 120; %70;
+shaftHalf   = 7; %5;
+headLength  = 28; %18;
+headHalf    = 22; %17;
 
 L = arrowLength / 2;
 H = headLength;
@@ -610,6 +627,7 @@ Screen('TextSize',win,cfg.instructionPx);
 DrawFormattedText(win,str,'center','center',[255 255 255],60,[],[],1.4);
 end
 
+
 function drawInstructionPreview(win, cfg, shapePx, linePx)
 
 rect = Screen('Rect', win);
@@ -624,18 +642,18 @@ Screen('TextFont', win, 'Arial');
 Screen('TextSize', win, max(15, round(h*0.024)));
 
 txt = sprintf([ ...
-    'VISUAL SEARCH TASK\n' ...
+    'VISUAL SEARCH TASK\n\n' ...
     'Find the DIAMOND among the circles.\n' ...
     'Report the line inside the diamond: F = \\   J = /\n' ...
     'Keep your eyes on the central dot and ignore the colors.']);
 
-DrawFormattedText(win, txt, 'center', round(h*0.04), cfg.fixColor);
+DrawFormattedText(win, txt, 'center', round(h*0.20), cfg.fixColor);
 
 % ---------- Shape examples ----------
 Screen('TextSize', win, max(13, round(h*0.019)));
 
-shapeY = h*0.34;
-shapeXs = cx + [-1.5 -0.5 0.5 1.5] * min(110, w*0.15);
+shapeY = h*0.40;
+shapeXs = cx + [-1.5 -0.5 0.5 1.5] * min(150, w*0.20);
 
 shapeLabels = {'DIAMOND \', 'DIAMOND /', 'CIRCLE \', 'CIRCLE /'};
 
@@ -667,7 +685,7 @@ for i = 1:4
     end
 
     DrawFormattedText(win, shapeLabels{i}, ...
-        x-45, y+r+12, cfg.fixColor);
+        x-45, y+r+25, cfg.fixColor);
 end
 
 % ---------- All possible colors ----------
@@ -676,9 +694,9 @@ highShift = 2*asind(cfg.highDeltaE/(2*cfg.Cstar));
 
 labels = {'BASE', 'LOW -', 'LOW +', 'HIGH -', 'HIGH +'};
 
-tableTop = h*0.57;
+tableTop = h*0.54;
 colGap = min(110, w*0.15);
-rowGap = min(52, h*0.065);
+rowGap = min(40, h*0.045);
 dotR = max(6, min(16, h*0.016));
 
 tableXs = cx + (-2:2)*colGap;
@@ -713,14 +731,115 @@ for row = 1:numel(cfg.baseHueDeg)
     end
 end
 
+% ---------- Trial timeline -----------
+drawTimingPreview(win, cfg, w, h);
+
+
 % ---------- Footer ----------
 Screen('TextSize', win, max(14, round(h*0.02)));
 
 DrawFormattedText(win, ...
     'Press SPACE to continue.   ESC to quit.', ...
-    'center', round(h*0.91), cfg.fixColor);
+    'center', round(h*0.95), cfg.fixColor);
 
 end
+
+
+function drawTimingPreview(win, cfg, w, h)
+
+% Researcher-only trial timing preview.
+% RT is illustrative, not measured.
+meanFix = (cfg.fixMin + cfg.fixMax) / 2;
+meanSOA = (cfg.soaMin + cfg.soaMax) / 2;
+exampleRT = 0.6;
+
+durations = [ ...
+    meanFix, ...
+    cfg.cueDuration, ...
+    meanSOA - cfg.cueDuration, ...
+    cfg.displayDuration, ...
+    max(0, exampleRT - cfg.displayDuration)];
+
+labels = {'Fixation', 'Cue', 'Delay', 'Search', 'Response'};
+values = arrayfun(@(v) sprintf('%.2f s', v), ...
+    durations, 'UniformOutput', false);
+
+% Layout
+left = w * 0.10;
+totalWidth = w * 0.80;
+gap = 5;
+ratios = [0.25 0.11 0.28 0.12 0.24];
+boxWidths = ratios * (totalWidth - 4*gap);
+
+boxY = h * 0.755;
+boxHeight = h * 0.065;
+labelY = boxY - h * 0.035;
+
+colors = [ ...
+    150 160 175;
+     65 135 245;
+     65 135 245;
+     35 170 100;
+     35 170 100];
+
+Screen('TextFont', win, 'Arial');
+
+xs = zeros(1, 5);
+x = left;
+
+for i = 1:5
+
+    xs(i) = x;
+    rect = [x boxY x+boxWidths(i) boxY+boxHeight];
+
+    % Border
+    Screen('FrameRect', win, colors(i,:), rect, 3);
+
+    % Section label
+    Screen('TextSize', win, max(12, round(h*0.018)));
+    bounds = Screen('TextBounds', win, labels{i});
+    tx = x + (boxWidths(i)-RectWidth(bounds))/2;
+    Screen('DrawText', win, labels{i}, ...
+        tx, labelY, cfg.fixColor);
+
+    % Duration
+    Screen('TextSize', win, max(12, round(h*0.020)));
+    bounds = Screen('TextBounds', win, values{i});
+    tx = x + (boxWidths(i)-RectWidth(bounds))/2;
+    ty = boxY + (boxHeight-RectHeight(bounds))/2;
+    Screen('DrawText', win, values{i}, ...
+        tx, ty, cfg.fixColor);
+
+    x = x + boxWidths(i) + gap;
+end
+
+% Stimulus Onset Asynchrony (SOA) bracket
+startX = xs(2);
+endX = xs(4);
+bracketY = boxY + boxHeight + h*0.012;
+bracketBottom = bracketY + h*0.016;
+blue = [65 135 245];
+
+Screen('DrawLine', win, blue, ...
+    startX, bracketY, startX, bracketBottom, 2);
+Screen('DrawLine', win, blue, ...
+    startX, bracketBottom, endX, bracketBottom, 2);
+Screen('DrawLine', win, blue, ...
+    endX, bracketY, endX, bracketBottom, 2);
+
+soaText = sprintf( ...
+    'Stimulus Onset Asynchrony (SOA): %.2f s', meanSOA);
+
+Screen('TextSize', win, max(12, round(h*0.017)));
+bounds = Screen('TextBounds', win, soaText);
+centerX = (startX + endX)/2;
+textX = centerX - RectWidth(bounds)/2;
+
+Screen('DrawText', win, soaText, ...
+    textX, bracketBottom + h*0.008, blue);
+
+end
+
 
 %% BioSemi and keys
 function sp = openBioSemiTrigger(portName)
@@ -776,7 +895,7 @@ items = {id,session,t.block,t.trial,t.globalTrial,t.cue,t.validity, ...
     t.displayMissed,t.offsetMissed,t.trigCueTime,t.trigDisplayTime,t.trigResponseTime};
 vals = cell(size(items));
 for k=1:numel(items)
-    if isnumeric(items{k}), vals{k}=sprintf('%.17g',items{k});
+    if isnumeric(items{k}) || islogical(items{k}), vals{k}=sprintf('%.17g',double(items{k}));
     else, vals{k}=char(items{k}); end
 end
 txt=strjoin(vals,',');
@@ -820,6 +939,12 @@ end
 
 
 function checkEsc(keyEsc)
+    [~, ~, keyCode] = KbCheck(-1);
+
+    if keyCode(keyEsc)
+        error('USER_ABORT');
+    end
+
     [~, firstPress] = KbQueueCheck();
 
     if firstPress(keyEsc) > 0
