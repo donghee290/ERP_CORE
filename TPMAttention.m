@@ -6,7 +6,7 @@ function TPMAttention(participantID)
 %    TPMAttention('P001')
 %
 % Based on the supplied TPM proposal.
-% 2 sessions x 10 blocks x 90 trials = 1800 trials.
+% 2 sessions x 15 blocks x 60 trials = 1800 trials.
 %
 % Eye tracking, photodiode, and RIFT are NOT implemented.
 %
@@ -28,7 +28,7 @@ assert(~isempty(regexp(participantID, '^[A-Za-z0-9_-]+$', 'once')), 'Participant
 
 %% Configuration
 cfg.portName         = '/dev/ttyUSB0';
-cfg.useTriggers      = false;  % DEBUG ONLY
+cfg.useTriggers      = true;  % DEBUG ONLY
 
 cfg.screenNumber     = max(Screen('Screens'));
 cfg.viewDistanceMM   = 750;
@@ -47,22 +47,22 @@ cfg.lineLengthDeg    = 0.70; %0.55;
 cfg.lineWidthPx      = 3;
 cfg.ringWidthPx      = 3;
 cfg.fixDiameterPx    = 6;
-cfg.instructionPx    = 26;
+cfg.instructionPx    = 30;
 
 cfg.fixMin           = 0.600;
 cfg.fixMax           = 0.900;
 cfg.cueDuration      = 0.200;
 
-cfg.itiDuration      = 0.400;  %added
+cfg.itiDuration      = 0.400;
 cfg.soaMin           = 1.200;
 cfg.soaMax           = 1.600;
 cfg.displayDuration  = 0.200;
 cfg.responseLimit    = 1.500;
 
-cfg.sessions         = 2;
-cfg.blocksPerSession = 15;
-cfg.trialsPerBlock   = 60;
-% ( fix 0.75sec + cue 0.2sec + wait 1.2sec + visual search 0.2sec + response wait 0.4sec )  * 60 trials * 15 blocks * 2 sessions = 49,500sec (82.5min)
+cfg.sessions         = 1;  %2;
+cfg.blocksPerSession = 9;  %15; %10;
+cfg.trialsPerBlock   = 60; %90;
+% ( fix 0.75sec + cue 0.2sec + wait(SOA) 1.2sec + visual search 0.2sec + response wait 0.4sec )  * 60 trials * 15 blocks * 2 sessions = 49,500sec (82.5min)
 
 cfg.validTrialsPerBlock    = 30;
 cfg.invalidTrialsPerBlock  = 10;
@@ -74,14 +74,17 @@ cfg.baseHueDeg             = [30 120 210 300];
 cfg.lowDeltaE              = 15;
 cfg.highDeltaE             = 60;
 
-cfg.showStimulusPreview    = true;  % DEBUG ONLY
+cfg.showStimulusPreview        = false;  % DEBUG ONLY
 
-cfg.runPractice            = true;  % DEBUG ONLY
-cfg.practiceTrials         = 30;
+cfg.runPractice                = false;  % DEBUG ONLY
+cfg.practiceTrials             = 30;
+cfg.practiceMaxTrialsPerLevel  = 30;
+cfg.practiceWindow             = 10;
+cfg.practiceRequiredCorrect    = 9;
 
-cfg.practiceDisplay        = 0.700;
-cfg.practiceRTLimit        = 2.500;
-cfg.practiceFeedback       = 0.700;
+cfg.practiceDisplay            = [0.400 0.300 0.200];
+cfg.practiceRTLimit            = [2.500 2.000 1.500];
+cfg.practiceFeedback           = 0.700;
 
 
 %% EEG Trigger Codes (BioSemi, 8-bit: 1-255)
@@ -231,10 +234,9 @@ try
         'If the line is /, press J.\n\n' ...
         'An arrow will appear before the shapes.\n' ...
         'It may indicate which side the diamond will appear on.\n' ...
-        'Sometimes the arrow will point in both directions.\n\n' ...
+        'Please response as quickly as possible while maintaining at least 90% accuracy.\n' ...
         'Ignore the colors of the shapes.\n' ...
         'Keep your eyes on the central dot.\n' ...
-        'Respond as quickly and accurately as possible.\n\n' ...
         'Press SPACE to continue.'];
 
     drawMessage(win, cfg, instructionText);
@@ -248,14 +250,12 @@ try
             cx, cy, keyF, keyJ, keyEsc, keySpace, prefix);
     end
 
-    Screen('Flip', win);
-    waitForSpace(keySpace, keyEsc);
-
     globalTrial = 0;
     previousTrial = [];
 
     for globalBlock = 1:(cfg.sessions * cfg.blocksPerSession)
         blockRows = cell(cfg.trialsPerBlock, 1);
+        blockCorrect = zeros(cfg.trialsPerBlock, 1);
 
         sessionNumber = ceil(globalBlock / cfg.blocksPerSession);
         block = mod(globalBlock - 1, cfg.blocksPerSession) + 1;
@@ -389,12 +389,15 @@ try
             end
 
             blockRows{trial} = encodeCSV(tr, participantID, sessionNumber);
+            blockCorrect(trial) = tr.correct;
             previousTrial = tr;
             fprintf('S%d B%02d T%02d | %s | %s | T%d D%d | %s | %s | RT %.3f\n', ...
                 sessionNumber, block, trial, tr.cue, tr.salienceName, ...
                 tr.targetPos, tr.distractorPos, tr.lineDirection, tr.responseKey, tr.rt);
             waitUntilOrEsc(GetSecs + cfg.itiDuration, keyEsc);
         end
+
+        blockAccuracy = mean(blockCorrect) * 100;
 
         % ---------------- Save completed block ------------------------
         csvPath = [prefix '_trials.csv'];
@@ -409,13 +412,13 @@ try
         assert(fid ~= -1, 'Failed to open main experiment CSV.');
 
         if globalBlock ==1
-            fprint(fid, '%s\n', strjoin(headers, ','));
+            fprintf(fid, '%s\n', strjoin(headers, ','));
         end
 
-        fprint(fid, '%s\n', blockRows{:});
+        fprintf(fid, '%s\n', blockRows{:});
         fclose(fid);
         fid = -1;
-        fprint('Block %d saved: %d trials.\n', globalBlock, numel(blockRows));
+        fprintf('Block %d saved: %d trials.\n', globalBlock, numel(blockRows));
 
         sendBioSemiTrigger(sp, 249);
         if globalBlock < cfg.sessions * cfg.blocksPerSession
@@ -431,8 +434,15 @@ try
 
                 % Regular break between blocks
                 drawMessage(win, cfg, ...
-                    ['Take a short break.\n\n' ...
+                    ['BLOCK COMPLETE\n\nAccuracy: \n\n' ...
+                    'Take a short break.\n\n' ...
                     'Press SPACE when you are ready to continue.']);
+                % Regular break between blocks
+                %drawMessage(win, cfg, ...
+                %    ['BLOCK COMPLETE\n\nAccuracy: %.1f%%\n\n' ...
+                %    'Take a short break.\n\n' ...
+                %    'Press SPACE when you are ready to continue.'], ...
+                %    blockAccuracy);
 
             end
 
@@ -442,7 +452,7 @@ try
         end
     end
 
-    drawMessage(win, cfg, 'Experiment complete.\n\nAll 1800 trials finished.\n\nPress SPACE to finish.');
+    drawMessage(win, cfg, 'Experiment complete.\n\nAll trials finished.\n\nPress SPACE to finish.');
     Screen('Flip', win);
     waitForSpace(keySpace, keyEsc);
     fprintf('Completed. CSV saved to: %s_trials.csv\n', prefix);
@@ -463,7 +473,12 @@ end
 function runPractice(win, cfg, ifi, posXY, ringPx, shapePx, linePx, ...
     cx, cy, keyF, keyJ, keyEsc, keySpace, prefix)
 
-nPractice = cfg.practiceTrials;
+nLevels = 3;
+nPractice = nLevels * cfg.practiceMaxTrialsPerLevel;
+
+level = 1;
+levelTrial = 0;
+recentCorrect = false(1, cfg.practiceWindow);
 
 % Generate a separate practice sequence.
 % Main experiment trials are not affected.
@@ -486,19 +501,20 @@ for sal = 0:2
 end
 
 selected = selected(randperm(numel(selected)));
-practiceSequence = block90(selected);
+
+practiceSequence = repmat(block90(selected), 1, nLevels);
+practiceSequence = practiceSequence(randperm(numel(practiceSequence)));
 
 save([prefix '_practice_design.mat'], 'practiceSequence');
 
 % Separate CSV for practice results
 practiceFile = [prefix '_practice.csv'];
 
-fid = fopen(practiceFile, 'w');
-assert(fid ~= -1, 'Cannot create practice CSV.');
-
 practiceHeader = ['trial,cue,validity,salience,targetPos,' ...
      'distractorPos,correctKey,responseKey,correct,RT,' ...
-     'timeout,displayDuration,responseLimit\n'];
+     'timeout,displayDuration,responseLimit'];
+
+practiceRows = cell(nPractice, 1);
 
 % ---------- Practice instructions ----------
 message = sprintf([ ...
@@ -521,8 +537,9 @@ for k = 1:nPractice
 
     tr = practiceSequence(k);
 
-    displayDuration = cfg.practiceDisplay;
-    responseLimit = cfg.practiceRTLimit;
+    phaseName = sprintf('LEVEL_%d', level);
+    displayDuration = cfg.practiceDisplay(level);
+    responseLimit = cfg.practiceRTLimit(level);
 
     % Stimulus Onset Asynchrony (SOA):
     % Cue onset to Search Display onset.
@@ -641,8 +658,8 @@ for k = 1:nPractice
     end
 
     % ---------- Save practice result ----------
-    practicRows{k} = sprintff( ...
-        '%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f\n', ...
+    practiceRows{k} = sprintf( ...
+        '%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f', ...
         k, tr.cue, tr.validity, ...
         tr.salienceName, tr.targetPos, tr.distractorPos, ...
         tr.correctKey, responseKey, double(correct), ...
@@ -657,10 +674,52 @@ for k = 1:nPractice
         feedback = 'INCORRECT';
     end
 
-    drawMessage(win, cfg, feedback);
-    Screen('Flip', win);
+    levelTrial = levelTrial + 1;
 
+    idx = mod(levelTrial - 1, cfg.practiceWindow) + 1;
+    recentCorrect(idx) = logical(correct);
+
+    drawMessage(win, cfg, sprintf( ...
+        '%s', feedback));
+
+    Screen('Flip', win);
     waitUntilOrEsc(GetSecs + cfg.practiceFeedback, keyEsc);
+
+    if levelTrial >= cfg.practiceWindow
+        nCorrect = sum(recentCorrect);
+        passed = nCorrect >= cfg.practiceRequiredCorrect;
+
+        if passed
+            if level == nLevels
+                break;
+            end
+
+            drawMessage(win, cfg, sprintf(['Take a break\n', ...
+                'When you are ready, press SPACE'], ...
+                level, cfg.practiceWindow, nCorrect));
+            
+            Screen('Flip', win);
+            waitForSpace(keySpace, keyEsc);
+
+            level = level + 1;
+            levelTrial = 0;
+            recentCorrect(:) = false;
+
+            continue;
+        end
+    end
+
+    if levelTrial >= cfg.practiceMaxTrialsPerLevel
+        
+        drawMessage(win, cfg, sprintf('step %d. try hard', level));
+
+        Screen('Flip', win);
+        waitForSpace(keySpace, keyEsc);
+
+        fprintf('Practice criterion not met at level %d.\n', level);
+        error('USER_ABORT');
+    end
+
 
 end
 
@@ -1134,7 +1193,7 @@ function drawMessage(win,cfg,str)
 Screen('FillRect',win,cfg.bg);
 Screen('TextFont',win,'Arial');
 Screen('TextSize',win,cfg.instructionPx);
-DrawFormattedText(win,str,'center','center',[255 255 255],60,[],[],1.4);
+DrawFormattedText(win,str,'center','center',[255 255 255],60,[],[],1.7);
 end
 
 
@@ -1149,7 +1208,7 @@ Screen('FillRect', win, cfg.bg);
 Screen('TextFont', win, 'Arial');
 
 % ---------- Instructions ----------
-Screen('TextSize', win, max(15, round(h*0.024)));
+Screen('TextSize', win, max(18, round(h*0.030)));
 
 txt = sprintf([ ...
     'VISUAL SEARCH TASK\n\n' ...
@@ -1400,7 +1459,7 @@ items = {id,session,t.block,t.trial,t.globalTrial,t.cue,t.validity, ...
     t.responseTrigger,t.responseKey,t.correct,t.rt,t.timeout, ...
     t.fixDur,t.soa,t.fixOnset,t.cueOnset,t.cueOffset, ...
     t.displayOnset,t.displayOffset,t.responseTime,t.cueMissed, ...
-    t.displayMissed,t.offsetMissed,t.trigCueTime,t.trigDisplayTime,t.trigResponseTime, ...
+    t.displayMissed,t.offsetMissed,t.trigCueTime,t.trigDisplayTime, ...
     t.trigResponseTime,t.baseHueRepeat,t.targetPosRepeat, ...
     t.distractorPresenceRepeat,t.distractorPosRepeat};
 vals = cell(size(items));
