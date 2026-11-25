@@ -225,15 +225,15 @@ try
         Screen('Flip', win);
         waitForSpace(keySpace, keyEsc);
     end
-    instructionText = [ ...
+    instructionText = sprintf([ ...
         'VISUAL SEARCH TASK\n\n' ...
         'Find the DIAMOND among six shapes.\n' ...
-        'Press F for \ and J for /.\n\n' ...
-        'An arrow will appear before the shapes.\n' ...
-        'It may indicate which side the diamond will appear on.\n' ...
-        'Please response as quickly as possible while maintaining at least 90% accuracy.\n' ...
-        'Ignore the colors and keep your eyes on the central dot.\n' ...
-        'Press SPACE to continue.'];
+        'Press F for \\ and J for /.\n\n' ...
+        'A left/right arrow predicts the target side 75%% of the time.\n' ...
+        'A double-headed arrow gives no directional information.\n\n' ...
+        'Ignore colors and keep your eyes on the central dot.\n' ...
+        'Respond quickly while maintaining at least 90%% accuracy.\n\n' ...
+        'Press SPACE to continue.']);
 
     drawMessage(win, cfg, instructionText);
     Screen('Flip', win);
@@ -419,46 +419,28 @@ try
         fprintf('Block %d saved: %d trials.\n', globalBlock, numel(blockRows));
 
         sendBioSemiTrigger(sp, 249);
-        if globalBlock < cfg.sessions * cfg.blocksPerSession
+        totalBlocks = cfg.sessions * cfg.blocksPerSession;
 
-            totalBlocks = cfg.sessions * cfg.blocksPerSession;
-
-            if globalBlock < totalBlocks
-
-                if block == cfg.blocksPerSession
-                    breakMessage = 'Take a longer break.';
-                else
-                    breakMessage = 'Take a short break.';
-                end
-
-                drawmessage(win, cfg, sprintf( ...
-                    'BLOCK %d / %d COMPLETE\n\nAccuracy: %.1f%%\n\n%s\n\nPress SPACE to continue.', ...
-                    globalBlock, totalBlocks, blockAccuracy, breakMessage));
-
-                Screen('Flip', win);
-                waitForSpace(keySpace, keyEsc);
-            end
-
+        if globalBlock < totalBlocks
+            if block == cfg.blocksPerSession
                 % Longer break between sessions
-                drawMessage(win, cfg, ...
-                    ['You may take a longer break now.\n\n' ...
-                    'Press SPACE when you are ready to continue.']);
-
+                breakMessage = 'Take a longer break.';
             else
-
                 % Regular break between blocks
-                drawMessage(win, cfg, ...
-                    ['BLOCK COMPLETE\n\nAccuracy: \n\n' ...
-                    'Take a short break.\n\n' ...
-                    'Press SPACE when you are ready to continue.']);
-
-
+                breakMessage = 'Take a short break.';
             end
 
-            Screen('Flip', win);
-            waitForSpace(keySpace, keyEsc);
-
+            drawMessage(win, cfg, sprintf( ...
+                'BLOCK %d / %d COMPLETE\n\nAccuracy: %.1f%%\n\n%s\n\nPress SPACE to continue.', ...
+                globalBlock, totalBlocks, blockAccuracy, breakMessage));
+        else
+            drawMessage(win, cfg, sprintf( ...
+                'EXPERIMENT COMPLETE\n\nFinal Block: %d / %d\nAccuracy: %.1f%%\n\nPress SPACE to finish.', ...
+                globalBlock, totalBlocks, blockAccuracy));
         end
+
+        Screen('Flip', win);
+        waitForSpace(keySpace, keyEsc);
     end
 
     fprintf('Completed. CSV saved to: %s_trials.csv\n', prefix);
@@ -516,11 +498,14 @@ save([prefix '_practice_design.mat'], 'practiceSequence');
 % Separate CSV for practice results
 practiceFile = [prefix '_practice.csv'];
 
-practiceHeader = ['trial,cue,validity,salience,targetPos,' ...
+practiceHeader = ['trial,level,levelTrial,cue,validity,salience,targetPos,' ...
      'distractorPos,correctKey,responseKey,correct,RT,' ...
      'timeout,displayDuration,responseLimit'];
 
-practiceRows = cell(nPractice, 1);
+practiceFid = fopen(practiceFile, 'w');
+assert(practiceFid ~= -1, 'Cannot create practice CSV.');
+fprintf(practiceFid, '%s\n', practiceHeader);
+fclose(practiceFid);
 
 % ---------- Practice instructions ----------
 message = sprintf([ ...
@@ -664,12 +649,15 @@ for k = 1:nPractice
     end
 
     % ---------- Save practice result ----------
-    practiceRows{k} = sprintf( ...
-        '%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f', ...
-        k, tr.cue, tr.validity, ...
+    practiceFid = fopen(practiceFile, 'a');
+    assert(practiceFid ~= -1, 'Cannot append practice CSV.');
+    fprintf(practiceFid, ...
+        '%d,%d,%d,%s,%s,%s,%d,%d,%s,%s,%d,%.17g,%d,%.3f,%.3f\n', ...
+        k, level, levelTrial + 1, tr.cue, tr.validity, ...
         tr.salienceName, tr.targetPos, tr.distractorPos, ...
         tr.correctKey, responseKey, double(correct), ...
         rt, double(timeout), displayDuration, responseLimit);
+    fclose(practiceFid);
 
     % ---------- Feedback ----------
     if timeout
@@ -700,9 +688,9 @@ for k = 1:nPractice
                 break;
             end
 
-            drawMessage(win, cfg, sprintf(['Take a break\n', ...
-                'When you are ready, press SPACE'], ...
-                level, cfg.practiceWindow, nCorrect));
+            drawMessage(win, cfg, sprintf( ...
+                'LEVEL %d COMPLETE\n\nAccuracy: %d / %d\n\nTake a break.\n\nNext: LEVEL %d\nPress SPACE to continue.', ...
+                level, nCorrect, cfg.practiceWindow, level + 1));
             
             Screen('Flip', win);
             waitForSpace(keySpace, keyEsc);
@@ -717,7 +705,8 @@ for k = 1:nPractice
 
     if levelTrial >= cfg.practiceMaxTrialsPerLevel
         
-        drawMessage(win, cfg, sprintf('step %d. try hard', level));
+        drawMessage(win, cfg, sprintf( ...
+            'LEVEL %d NOT PASSED\n\nPlease inform the researcher.\n\nPress SPACE to finish.', level));
 
         Screen('Flip', win);
         waitForSpace(keySpace, keyEsc);
@@ -729,21 +718,14 @@ for k = 1:nPractice
 
 end
 
-fid = fopen(practiceFile, 'w');
-assert(fid ~= -1, 'Cannot create practice CSV.');
-
-fprintf(fid, '%s\n', practiceHeader);
-fprintf(fid, '%s\n', practiceRows{:});
-fclose(fid);
-
 fprintf('Practice completed. CSV saved: %s\n', practiceFile);
 
 % ---------- End of practice ----------
 message = sprintf([ ...
     'PRACTICE COMPLETE\n\n' ...
-    'You have completed all practice trials.\n\n' ...
+    'You have passed all three levels.\n\n' ...
     'The main experiment will now begin.\n' ...
-    'The shapes will appear for a shorter duration.\n' ...
+    'The timing will remain the same as Level 3.\n' ...
     'You will not receive feedback after each trial.\n\n' ...
     'Press SPACE to continue.   ESC to quit.']);
 
