@@ -74,9 +74,9 @@ cfg.baseHueDeg             = [30 120 210 300];
 cfg.lowDeltaE              = 15;
 cfg.highDeltaE             = 60;
 
-cfg.showStimulusPreview        = false;  % DEBUG ONLY
+cfg.showStimulusPreview        = true;  % DEBUG ONLY
 
-cfg.runPractice                = false;  % DEBUG ONLY
+cfg.runPractice                = true;  % DEBUG ONLY
 cfg.practiceTrials             = 30;
 cfg.practiceMaxTrialsPerLevel  = 30;
 cfg.practiceWindow             = 10;
@@ -227,16 +227,12 @@ try
     end
     instructionText = [ ...
         'VISUAL SEARCH TASK\n\n' ...
-        'Six shapes will briefly appear on the screen.\n' ...
-        'Your task is to find the DIAMOND among the circles.\n\n' ...
-        'Look at the line inside the DIAMOND.\n' ...
-        'If the line is \, press F.\n' ...
-        'If the line is /, press J.\n\n' ...
+        'Find the DIAMOND among six shapes.\n' ...
+        'Press F for \ and J for /.\n\n' ...
         'An arrow will appear before the shapes.\n' ...
         'It may indicate which side the diamond will appear on.\n' ...
         'Please response as quickly as possible while maintaining at least 90% accuracy.\n' ...
-        'Ignore the colors of the shapes.\n' ...
-        'Keep your eyes on the central dot.\n' ...
+        'Ignore the colors and keep your eyes on the central dot.\n' ...
         'Press SPACE to continue.'];
 
     drawMessage(win, cfg, instructionText);
@@ -263,7 +259,9 @@ try
             previousTrial = [];
         end
 
-        drawMessage(win, cfg, 'Press SPACE to begin.');
+        drawMessage(win, cfg, sprintf( ...
+            'BLOCK %d / %d\n\nPress SPACE to begin.', ...
+            globalBlock, cfg.sessions * cfg.blocksPerSession));
         Screen('Flip', win);
         waitForSpace(keySpace, keyEsc);
         sendBioSemiTrigger(sp, 248);
@@ -423,7 +421,23 @@ try
         sendBioSemiTrigger(sp, 249);
         if globalBlock < cfg.sessions * cfg.blocksPerSession
 
-            if block == cfg.blocksPerSession
+            totalBlocks = cfg.sessions * cfg.blocksPerSession;
+
+            if globalBlock < totalBlocks
+
+                if block == cfg.blocksPerSession
+                    breakMessage = 'Take a longer break.';
+                else
+                    breakMessage = 'Take a short break.';
+                end
+
+                drawmessage(win, cfg, sprintf( ...
+                    'BLOCK %d / %d COMPLETE\n\nAccuracy: %.1f%%\n\n%s\n\nPress SPACE to continue.', ...
+                    globalBlock, totalBlocks, blockAccuracy, breakMessage));
+
+                Screen('Flip', win);
+                waitForSpace(keySpace, keyEsc);
+            end
 
                 % Longer break between sessions
                 drawMessage(win, cfg, ...
@@ -437,12 +451,7 @@ try
                     ['BLOCK COMPLETE\n\nAccuracy: \n\n' ...
                     'Take a short break.\n\n' ...
                     'Press SPACE when you are ready to continue.']);
-                % Regular break between blocks
-                %drawMessage(win, cfg, ...
-                %    ['BLOCK COMPLETE\n\nAccuracy: %.1f%%\n\n' ...
-                %    'Take a short break.\n\n' ...
-                %    'Press SPACE when you are ready to continue.'], ...
-                %    blockAccuracy);
+
 
             end
 
@@ -452,9 +461,6 @@ try
         end
     end
 
-    drawMessage(win, cfg, 'Experiment complete.\n\nAll trials finished.\n\nPress SPACE to finish.');
-    Screen('Flip', win);
-    waitForSpace(keySpace, keyEsc);
     fprintf('Completed. CSV saved to: %s_trials.csv\n', prefix);
 catch ME
     if strcmp(ME.message, 'USER_ABORT')
